@@ -1,0 +1,56 @@
+<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+  <!-- Sfondo -->
+  <rect width="800" height="600" fill="#ffffff"/>
+  
+  <!-- Ombra notebook -->
+  <ellipse cx="400" cy="520" rx="280" ry="40" fill="#000000" opacity="0.1"/>
+  
+  <!-- Base notebook (parte inferiore) -->
+  <rect x="150" y="420" width="500" height="120" fill="#000000" rx="8"/>
+  <rect x="160" y="430" width="480" height="100" fill="#1a1a1a" rx="4"/>
+  
+  <!-- Tastiera -->
+  <g id="keyboard">
+    <!-- Righe di tasti -->
+    <rect x="180" y="445" width="440" height="8" fill="#333333" rx="2"/>
+    <rect x="180" y="460" width="440" height="8" fill="#333333" rx="2"/>
+    <rect x="180" y="475" width="440" height="8" fill="#333333" rx="2"/>
+    <rect x="180" y="490" width="440" height="8" fill="#333333" rx="2"/>
+    <rect x="200" y="505" width="400" height="8" fill="#333333" rx="2"/>
+  </g>
+  
+  <!-- Touchpad -->
+  <rect x="340" y="460" width="120" height="80" fill="#000000" rx="4" opacity="0.2"/>
+  
+  <!-- Schermo notebook (parte superiore) -->
+  <rect x="140" y="100" width="520" height="330" fill="#000000" rx="12"/>
+  
+  <!-- Cornice schermo -->
+  <rect x="155" y="115" width="490" height="300" fill="#1a1a1a" rx="4"/>
+  
+  <!-- Display attivo -->
+  <rect x="170" y="130" width="460" height="270" fill="#ffffff" rx="2"/>
+  
+  <!-- Icona notebook centrale -->
+  <g transform="translate(400, 265)">
+    <!-- Laptop icon -->
+    <rect x="-60" y="-35" width="120" height="70" fill="none" stroke="#dc143c" stroke-width="3" rx="4"/>
+    <line x1="-60" y1="35" x2="-80" y2="50" stroke="#dc143c" stroke-width="3"/>
+    <line x1="60" y1="35" x2="80" y2="50" stroke="#dc143c" stroke-width="3"/>
+    <line x1="-80" y1="50" x2="80" y2="50" stroke="#dc143c" stroke-width="3"/>
+    <rect x="-50" y="-25" width="100" height="50" fill="none" stroke="#dc143c" stroke-width="2" rx="2"/>
+  </g>
+  
+  <!-- Webcam -->
+  <circle cx="400" cy="125" r="4" fill="#ffffff"/>
+  
+  <!-- Testo placeholder -->
+  <text x="400" y="350" font-family="Arial, sans-serif" font-size="24" fill="#dc143c" text-anchor="middle" font-weight="bold">NOTEBOOK</text>
+  <text x="400" y="380" font-family="Arial, sans-serif" font-size="16" fill="#333333" text-anchor="middle">Immagine non disponibile</text>
+  
+  <!-- Dimensioni indicative -->
+  <text x="400" y="560" font-family="Arial, sans-serif" font-size="14" fill="#666666" text-anchor="middle">800 x 600 px</text>
+  
+  <!-- Logo fittizio -->
+  <circle cx="400" cy="510" r="8" fill="#dc143c"/>
+</svg>

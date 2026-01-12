@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Caricamento...</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: white;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+
+    .splash-container {
+      text-align: center;
+      padding: 50px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .logo {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+
+    .logo .highlight {
+      color: #e94560;
+    }
+
+    .app-name {
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 30px;
+    }
+
+    .loader {
+      width: 60px;
+      height: 60px;
+      margin: 0 auto 25px;
+      position: relative;
+    }
+
+    .loader-ring {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border: 3px solid transparent;
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .loader-ring:nth-child(2) {
+      width: 75%;
+      height: 75%;
+      top: 12.5%;
+      left: 12.5%;
+      border-top-color: #0f3460;
+      animation-duration: 0.8s;
+      animation-direction: reverse;
+    }
+
+    .loader-ring:nth-child(3) {
+      width: 50%;
+      height: 50%;
+      top: 25%;
+      left: 25%;
+      border-top-color: #16213e;
+      animation-duration: 0.6s;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .status {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 10px;
+    }
+
+    .substatus {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .progress-bar {
+      width: 200px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      margin: 20px auto 0;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 30%;
+      background: linear-gradient(90deg, #e94560, #0f3460);
+      border-radius: 2px;
+      animation: progress 2s ease-in-out infinite;
+    }
+
+    @keyframes progress {
+      0% { transform: translateX(-100%); width: 30%; }
+      50% { width: 60%; }
+      100% { transform: translateX(400%); width: 30%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-container">
+    <div class="logo">
+      W<span class="highlight">[r]</span>Digital
+    </div>
+    <div class="app-name">E-commerce Price Manager</div>
+    
+    <div class="loader">
+      <div class="loader-ring"></div>
+      <div class="loader-ring"></div>
+      <div class="loader-ring"></div>
+    </div>
+    
+    <div class="status">Avvio in corso...</div>
+    <div class="substatus">Preparazione server backend e frontend</div>
+    
+    <div class="progress-bar">
+      <div class="progress-fill"></div>
+    </div>
+  </div>
+</body>
+</html>

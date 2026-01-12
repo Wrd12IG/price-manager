@@ -1,0 +1,266 @@
+================================================================================
+       E-COMMERCE PRICE MANAGER - GUIDA INSTALLAZIONE MANUALE WINDOWS
+================================================================================
+
+                        Versione: 1.0
+                        W[r]Digital - Dicembre 2024
+
+================================================================================
+
+
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                              REQUISITI                                         ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+Prima di iniziare, assicurati di avere installato:
+
+  ✓ Node.js 20 LTS (o superiore)
+    Scarica da: https://nodejs.org/
+    
+    → Clicca sul pulsante grande "20.x.x LTS (Recommended For Most Users)"
+    → Installa con le opzioni predefinite
+    → RIAVVIA IL PC dopo l'installazione!
+
+
+================================================================================
+PASSO 1: COPIA LA CARTELLA
+================================================================================
+
+1. Copia l'intera cartella "ecommerce-price-manager" sul PC Windows
+
+2. Suggerisco di metterla in:
+   
+   C:\Users\TUO_NOME\ecommerce-price-manager
+   
+   OPPURE
+   
+   C:\Programmi\ecommerce-price-manager
+
+3. NON metterla sul Desktop con nomi lunghi o con spazi strani
+
+
+================================================================================
+PASSO 2: APRI IL TERMINALE (PowerShell)
+================================================================================
+
+1. Apri la cartella "ecommerce-price-manager" in Esplora File
+
+2. Nella barra degli indirizzi in alto, clicca e scrivi:
+   
+   powershell
+   
+   Poi premi INVIO
+
+   OPPURE:
+   
+   - Tieni premuto SHIFT
+   - Clicca col tasto DESTRO nella cartella
+   - Seleziona "Apri finestra PowerShell qui"
+
+
+================================================================================
+PASSO 3: VERIFICA NODE.JS
+================================================================================
+
+Nel terminale PowerShell, digita:
+
+   node --version
+
+Dovresti vedere qualcosa come: v20.x.x
+
+Se vedi un errore:
+   → Riavvia il PC
+   → Se ancora non funziona, reinstalla Node.js
+
+
+================================================================================
+PASSO 4: INSTALLA LE DIPENDENZE
+================================================================================
+
+Esegui questi comandi UNO PER VOLTA:
+
+1. Dipendenze principali:
+   
+   npm install
+
+2. Dipendenze backend:
+   
+   cd backend
+   npm install
+   cd ..
+
+3. Dipendenze frontend:
+   
+   cd frontend
+   npm install
+   cd ..
+
+NOTA: Se vedi warning gialli, ignorali. L'importante è che non ci siano errori rossi.
+
+
+================================================================================
+PASSO 5: CONFIGURA IL DATABASE (Solo la prima volta)
+================================================================================
+
+1. Vai nella cartella backend:
+   
+   cd backend
+
+2. Genera il client Prisma:
+   
+   npx prisma generate
+
+3. Inizializza il database SQLite:
+   
+   npx prisma migrate dev --name init
+
+   Se chiede un nome, premi INVIO per accettare "init"
+
+4. Torna alla cartella principale:
+   
+   cd ..
+
+
+================================================================================
+PASSO 6: AVVIA L'APPLICAZIONE
+================================================================================
+
+Hai DUE opzioni:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPZIONE A: Usa lo script (più facile)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fai doppio clic su:
+
+   start-app.bat
+
+L'app si avvierà automaticamente!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPZIONE B: Avvia manualmente dal terminale
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Digita:
+
+   npm run dev
+
+Questo avvia sia il backend che il frontend insieme.
+
+
+================================================================================
+PASSO 7: APRI L'APPLICAZIONE NEL BROWSER
+================================================================================
+
+Dopo che il terminale mostra che i server sono avviati, apri il browser e vai a:
+
+   http://localhost:5173
+
+Questo è il FRONTEND (l'interfaccia che usi).
+
+Il BACKEND gira su:
+   
+   http://localhost:3000
+
+(Non serve aprirlo, è solo l'API)
+
+
+================================================================================
+PASSO 8: CHIUDERE L'APPLICAZIONE
+================================================================================
+
+Per chiudere l'app:
+
+1. Vai nella finestra del terminale/PowerShell
+
+2. Premi:
+
+   CTRL + C
+
+3. Se chiede conferma, digita: S e premi INVIO
+
+
+================================================================================
+CREARE UN COLLEGAMENTO SUL DESKTOP
+================================================================================
+
+1. Trova il file "start-app.bat" nella cartella principale
+
+2. Tasto destro → Crea collegamento
+
+3. Trascina il collegamento sul Desktop
+
+4. Rinominalo "Price Manager" o come preferisci
+
+5. (Opzionale) Tasto destro → Proprietà → Cambia icona
+
+
+================================================================================
+RISOLUZIONE PROBLEMI
+================================================================================
+
+PROBLEMA: "node non è riconosciuto come comando"
+───────────────────────────────────────────────
+SOLUZIONE:
+1. Reinstalla Node.js da https://nodejs.org/
+2. RIAVVIA IL PC
+3. Riprova
+
+
+PROBLEMA: "npm install" dà errori
+──────────────────────────────────
+SOLUZIONE:
+1. Elimina la cartella "node_modules" (se esiste)
+2. Elimina il file "package-lock.json"
+3. Riesegui "npm install"
+
+
+PROBLEMA: "porta già in uso"
+────────────────────────────
+SOLUZIONE:
+Un'altra istanza dell'app è già in esecuzione.
+1. Chiudi tutte le finestre PowerShell/cmd
+2. Apri Task Manager (CTRL+SHIFT+ESC)
+3. Cerca processi "node.exe" e terminali
+4. Riprova
+
+
+PROBLEMA: Il frontend non si apre
+─────────────────────────────────
+SOLUZIONE:
+1. Aspetta 10-15 secondi dopo l'avvio
+2. Prova ad aprire manualmente http://localhost:5173
+3. Se non funziona, controlla che non ci siano errori nel terminale
+
+
+PROBLEMA: Il database non funziona
+──────────────────────────────────
+SOLUZIONE:
+1. cd backend
+2. npx prisma migrate reset
+3. Conferma con Y
+4. cd ..
+5. Riavvia l'app
+
+
+================================================================================
+COMANDI UTILI
+================================================================================
+
+  npm run dev              → Avvia l'app in modalità sviluppo
+  npm run build            → Compila per produzione
+  cd backend && npx prisma studio → Apri il database con interfaccia grafica
+
+
+================================================================================
+URL DELL'APPLICAZIONE
+================================================================================
+
+  Frontend (interfaccia):  http://localhost:5173
+  Backend (API):           http://localhost:3000
+
+
+================================================================================
+                              BUON LAVORO!
+                            W[r]Digital 2024
+================================================================================

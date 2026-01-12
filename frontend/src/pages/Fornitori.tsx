@@ -1,0 +1,555 @@
+import { useEffect, useState } from 'react';
+import {
+    Box,
+    Typography,
+    Button,
+    Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    IconButton,
+    Chip,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    TextField,
+    MenuItem,
+    CircularProgress,
+    Tooltip,
+} from '@mui/material';
+import {
+    Add as AddIcon,
+    Edit as EditIcon,
+    Delete as DeleteIcon,
+    Wifi as TestIcon,
+    Visibility as PreviewIcon,
+    CloudDownload as CloudDownloadIcon,
+} from '@mui/icons-material';
+import axios from 'axios';
+import { toast } from 'react-toastify';
+import PreviewDialog from '../components/PreviewDialog';
+
+interface Fornitore {
+    id: number;
+    nomeFornitore: string;
+    urlListino?: string;
+    formatoFile: string;
+    tipoAccesso: string;
+    username?: string;
+    passwordEncrypted?: string;
+    ftpHost?: string;
+    ftpPort?: number;
+    ftpDirectory?: string;
+    encoding?: string;
+    separatoreCSV?: string;
+    attivo: boolean;
+    ultimaSincronizzazione: string | null;
+    _count?: {
+        mappatureCampi: number;
+        mappatureCategorie: number;
+        listiniRaw: number;
+    };
+}
+
+export default function Fornitori() {
+    const [fornitori, setFornitori] = useState<Fornitore[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [selectedFornitoreId, setSelectedFornitoreId] = useState<number | null>(null);
+    const [selectedFornitoreName, setSelectedFornitoreName] = useState('');
+    const [editingFornitore, setEditingFornitore] = useState<Fornitore | null>(null);
+    const [formData, setFormData] = useState({
+        nomeFornitore: '',
+        urlListino: '',
+        formatoFile: 'CSV',
+        tipoAccesso: 'direct_url',
+        username: '',
+        password: '',
+        ftpHost: '',
+        ftpPort: 21,
+        ftpDirectory: '',
+        encoding: 'UTF-8',
+        separatoreCSV: ';',
+    });
+
+    useEffect(() => {
+        fetchFornitori();
+    }, []);
+
+    const fetchFornitori = async () => {
+        try {
+            const response = await axios.get('/api/fornitori');
+            setFornitori(response.data.data);
+        } catch (error) {
+            toast.error('Errore nel caricamento dei fornitori');
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleOpenDialog = (fornitore?: Fornitore) => {
+        if (fornitore) {
+            setEditingFornitore(fornitore);
+            setFormData({
+                nomeFornitore: fornitore.nomeFornitore,
+                urlListino: fornitore.urlListino || '',
+                formatoFile: fornitore.formatoFile,
+                tipoAccesso: fornitore.tipoAccesso,
+                username: fornitore.username || '',
+                password: '', // Password non viene restituita per sicurezza, lasciare vuoto per non modificare
+                ftpHost: fornitore.ftpHost || '',
+                ftpPort: fornitore.ftpPort || 21,
+                ftpDirectory: fornitore.ftpDirectory || '',
+                encoding: fornitore.encoding || 'UTF-8',
+                separatoreCSV: fornitore.separatoreCSV || ';',
+            });
+        } else {
+            setEditingFornitore(null);
+            setFormData({
+                nomeFornitore: '',
+                urlListino: '',
+                formatoFile: 'CSV',
+                tipoAccesso: 'direct_url',
+                username: '',
+                password: '',
+                ftpHost: '',
+                ftpPort: 21,
+                ftpDirectory: '',
+                encoding: 'UTF-8',
+                separatoreCSV: ';',
+            });
+        }
+        setDialogOpen(true);
+    };
+
+    const handleCloseDialog = () => {
+        setDialogOpen(false);
+        setEditingFornitore(null);
+    };
+
+    const handleSave = async () => {
+        try {
+            if (editingFornitore) {
+                await axios.put(`/api/fornitori/${editingFornitore.id}`, formData);
+                toast.success('Fornitore aggiornato con successo');
+            } else {
+                await axios.post('/api/fornitori', formData);
+                toast.success('Fornitore creato con successo');
+            }
+            handleCloseDialog();
+            fetchFornitori();
+        } catch (error: any) {
+            toast.error(error.response?.data?.error?.message || 'Errore nel salvataggio');
+            console.error(error);
+        }
+    };
+
+    const handleDelete = async (id: number) => {
+        if (!confirm('Sei sicuro di voler eliminare questo fornitore?')) return;
+
+        try {
+            await axios.delete(`/api/fornitori/${id}`);
+            toast.success('Fornitore eliminato');
+            fetchFornitori();
+        } catch (error) {
+            toast.error('Errore nell\'eliminazione');
+            console.error(error);
+        }
+    };
+
+    const handleTestConnection = async (id: number) => {
+        try {
+            const response = await axios.post(`/api/fornitori/${id}/test-connection`);
+            if (response.data.data.success) {
+                toast.success('Connessione riuscita!');
+            } else {
+                toast.error('Connessione fallita');
+            }
+        } catch (error) {
+            toast.error('Errore nel test della connessione');
+            console.error(error);
+        }
+    };
+
+    const handlePreview = (fornitore: Fornitore) => {
+        setSelectedFornitoreId(fornitore.id);
+        setSelectedFornitoreName(fornitore.nomeFornitore);
+        setPreviewOpen(true);
+    };
+
+    const handleImport = async (id: number) => {
+        const toastId = toast.loading('Inizializzazione importazione...');
+        let pollingInterval: any;
+
+        try {
+            // Avvia polling per mostrare il progresso
+            pollingInterval = setInterval(async () => {
+                try {
+                    const statusRes = await axios.get(`/api/fornitori/${id}/import-status`);
+                    const log = statusRes.data.data;
+
+                    if (log && log.stato === 'running') {
+                        const details = log.dettagliJson ? JSON.parse(log.dettagliJson) : {};
+                        const total = details.totalRows || 0;
+                        const current = log.prodottiProcessati || 0;
+                        const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+
+                        toast.update(toastId, {
+                            render: `Importazione: ${current}${total > 0 ? ' / ' + total : ''} record (${percent}%)`,
+                            type: 'default',
+                            isLoading: true
+                        });
+                    }
+                } catch (e) {
+                    // Errore polling silenzioso
+                }
+            }, 3000);
+
+            const response = await axios.post(`/api/fornitori/${id}/import`, null, {
+                timeout: 900000 // 15 minuti lato client
+            });
+
+            if (pollingInterval) clearInterval(pollingInterval);
+
+            const { total, inserted, errors } = response.data.data;
+
+            toast.update(toastId, {
+                render: `✅ Importazione completata! Processati: ${total}, Inseriti: ${inserted}, Errori: ${errors}`,
+                type: 'success',
+                isLoading: false,
+                autoClose: 10000
+            });
+            fetchFornitori();
+        } catch (error: any) {
+            if (pollingInterval) clearInterval(pollingInterval);
+
+            const errorMessage = error.code === 'ECONNABORTED'
+                ? 'Timeout superato. L\'importazione sta continuando in background, controlla tra poco.'
+                : (error.response?.data?.error?.message || 'Errore durante l\'importazione');
+
+            toast.update(toastId, {
+                render: errorMessage,
+                type: 'error',
+                isLoading: false,
+                autoClose: 10000
+            });
+            console.error(error);
+            fetchFornitori();
+        }
+    };
+
+    const handleImportAll = async () => {
+        if (!confirm('Sei sicuro di voler avviare l\'aggiornamento di TUTTI i listini attivi?\nL\'operazione potrebbe richiedere alcuni minuti.')) return;
+
+        const toastId = toast.loading('Aggiornamento massivo in corso... attendere, non chiudere la pagina.');
+        try {
+            const response = await axios.post('/api/fornitori/import-all');
+            const { results, totalErrors } = response.data.data;
+
+            // Formatta messaggio
+            const successCount = results.filter((r: any) => r.success).length;
+            const failCount = results.length - successCount;
+
+            toast.update(toastId, {
+                render: `Aggiornamento completato! Successi: ${successCount}, Falliti: ${failCount}.`,
+                type: totalErrors > 0 ? 'warning' : 'success',
+                isLoading: false,
+                autoClose: 8000
+            });
+            fetchFornitori(); // Aggiorna ultima sync
+        } catch (error: any) {
+            toast.update(toastId, {
+                render: error.response?.data?.error?.message || 'Errore durante l\'aggiornamento massivo',
+                type: 'error',
+                isLoading: false,
+                autoClose: 8000
+            });
+            console.error(error);
+        }
+    };
+
+    if (loading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+                <CircularProgress size={60} />
+            </Box>
+        );
+    }
+
+    return (
+        <Box>
+            {/* Header */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+                <Box>
+                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                        Gestione Fornitori
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary">
+                        Configura i fornitori e le modalità di accesso ai listini
+                    </Typography>
+                </Box>
+                <Box>
+                    <Button
+                        variant="outlined"
+                        startIcon={<CloudDownloadIcon />}
+                        onClick={() => handleImportAll()}
+                        sx={{ mr: 2, borderColor: '#333', color: '#333', '&:hover': { borderColor: '#000', backgroundColor: '#f5f5f5' } }}
+                    >
+                        Aggiorna Tutto
+                    </Button>
+                    <Button
+                        variant="contained"
+                        startIcon={<AddIcon sx={{ color: '#FFD700' }} />}
+                        onClick={() => handleOpenDialog()}
+                        sx={{ backgroundColor: '#000', '&:hover': { backgroundColor: '#333' } }}
+                    >
+                        Nuovo Fornitore
+                    </Button>
+                </Box>
+            </Box>
+
+            {/* Table */}
+            <TableContainer component={Paper}>
+                <Table>
+                    <TableHead>
+                        <TableRow sx={{ backgroundColor: '#f9fafb' }}>
+                            <TableCell sx={{ fontWeight: 600 }}>Nome Fornitore</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Formato</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Tipo Accesso</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Stato</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Mappatura</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Ultima Sync</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>Prodotti</TableCell>
+                            <TableCell sx={{ fontWeight: 600 }} align="right">
+                                Azioni
+                            </TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {fornitori.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
+                                    <Typography variant="body1" color="text.secondary">
+                                        Nessun fornitore configurato. Clicca su "Nuovo Fornitore" per iniziare.
+                                    </Typography>
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            fornitori.map((fornitore) => (
+                                <TableRow key={fornitore.id} hover>
+                                    <TableCell>
+                                        <Typography variant="body2" fontWeight={600}>
+                                            {fornitore.nomeFornitore}
+                                        </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Chip label={fornitore.formatoFile} size="small" variant="outlined" />
+                                    </TableCell>
+                                    <TableCell>{fornitore.tipoAccesso}</TableCell>
+                                    <TableCell>
+                                        <Chip
+                                            label={fornitore.attivo ? 'Attivo' : 'Inattivo'}
+                                            size="small"
+                                            sx={{
+                                                fontWeight: 600,
+                                                ...(fornitore.attivo && {
+                                                    backgroundColor: '#000000',
+                                                    color: '#ffffff',
+                                                    '& .MuiChip-label': { color: '#ffffff' }
+                                                })
+                                            }}
+                                            color={fornitore.attivo ? 'default' : 'default'}
+                                            variant={fornitore.attivo ? 'filled' : 'outlined'}
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Chip
+                                            label={(fornitore._count?.mappatureCampi || 0) > 0 ? 'Mappato' : 'Da Mappare'}
+                                            size="small"
+                                            sx={{
+                                                fontWeight: 600,
+                                                ...((fornitore._count?.mappatureCampi || 0) > 0 && {
+                                                    backgroundColor: '#000000',
+                                                    color: '#ffffff',
+                                                    '& .MuiChip-label': { color: '#ffffff' }
+                                                })
+                                            }}
+                                            color={(fornitore._count?.mappatureCampi || 0) > 0 ? 'default' : 'warning'}
+                                            variant={(fornitore._count?.mappatureCampi || 0) > 0 ? 'filled' : 'outlined'}
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        {fornitore.ultimaSincronizzazione
+                                            ? new Date(fornitore.ultimaSincronizzazione).toLocaleString('it-IT')
+                                            : 'Mai'}
+                                    </TableCell>
+                                    <TableCell>{fornitore._count?.listiniRaw.toLocaleString() || 0}</TableCell>
+                                    <TableCell align="right">
+                                        <Tooltip title="Testa connessione">
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => handleTestConnection(fornitore.id)}
+                                                color="info"
+                                            >
+                                                <TestIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title="Anteprima listino">
+                                            <IconButton
+                                                size="small"
+                                                color="primary"
+                                                onClick={() => handlePreview(fornitore)}
+                                            >
+                                                <PreviewIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title="Importa listino ora">
+                                            <IconButton
+                                                size="small"
+                                                color="success"
+                                                onClick={() => handleImport(fornitore.id)}
+                                            >
+                                                <CloudDownloadIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title="Modifica">
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => handleOpenDialog(fornitore)}
+                                                color="primary"
+                                            >
+                                                <EditIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title="Elimina">
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => handleDelete(fornitore.id)}
+                                                color="error"
+                                            >
+                                                <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                        </Tooltip>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        )}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+
+            {/* Dialog */}
+            <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    {editingFornitore ? 'Modifica Fornitore' : 'Nuovo Fornitore'}
+                </DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                        <TextField
+                            label="Nome Fornitore"
+                            value={formData.nomeFornitore}
+                            onChange={(e) => setFormData({ ...formData, nomeFornitore: e.target.value })}
+                            fullWidth
+                            required
+                        />
+                        <TextField
+                            label="URL Listino"
+                            value={formData.urlListino}
+                            onChange={(e) => setFormData({ ...formData, urlListino: e.target.value })}
+                            fullWidth
+                        />
+                        <TextField
+                            select
+                            label="Formato File"
+                            value={formData.formatoFile}
+                            onChange={(e) => setFormData({ ...formData, formatoFile: e.target.value })}
+                            fullWidth
+                        >
+                            <MenuItem value="CSV">CSV</MenuItem>
+                            <MenuItem value="Excel">Excel</MenuItem>
+                            <MenuItem value="XML">XML</MenuItem>
+                            <MenuItem value="JSON">JSON</MenuItem>
+                        </TextField>
+                        <TextField
+                            select
+                            label="Tipo Accesso"
+                            value={formData.tipoAccesso}
+                            onChange={(e) => setFormData({ ...formData, tipoAccesso: e.target.value })}
+                            fullWidth
+                        >
+                            <MenuItem value="direct_url">Download Diretto URL</MenuItem>
+                            <MenuItem value="http_auth">HTTP con Credenziali</MenuItem>
+                            <MenuItem value="ftp">FTP/SFTP</MenuItem>
+                            <MenuItem value="api">API REST</MenuItem>
+                        </TextField>
+                        {(formData.tipoAccesso === 'http_auth' || formData.tipoAccesso === 'ftp') && (
+                            <>
+                                <TextField
+                                    label="Username"
+                                    value={formData.username}
+                                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                                    fullWidth
+                                />
+                                <TextField
+                                    label="Password"
+                                    type="password"
+                                    value={formData.password}
+                                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                    fullWidth
+                                />
+                            </>
+                        )}
+                        {formData.tipoAccesso === 'ftp' && (
+                            <>
+                                <TextField
+                                    label="Host FTP"
+                                    value={formData.ftpHost}
+                                    onChange={(e) => setFormData({ ...formData, ftpHost: e.target.value })}
+                                    fullWidth
+                                    placeholder="ftp.example.com"
+                                    helperText="Indirizzo del server FTP/SFTP"
+                                />
+                                <TextField
+                                    label="Porta"
+                                    type="number"
+                                    value={formData.ftpPort}
+                                    onChange={(e) => setFormData({ ...formData, ftpPort: parseInt(e.target.value) || 21 })}
+                                    fullWidth
+                                    helperText="Porta FTP (default: 21) o SFTP (default: 22)"
+                                />
+                                <TextField
+                                    label="Directory FTP"
+                                    value={formData.ftpDirectory}
+                                    onChange={(e) => setFormData({ ...formData, ftpDirectory: e.target.value })}
+                                    fullWidth
+                                    placeholder="/listini"
+                                    helperText="Cartella contenente i file da scaricare (scarica tutti i file)"
+                                />
+                            </>
+                        )}
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseDialog}>Annulla</Button>
+                    <Button onClick={handleSave} variant="contained">
+                        Salva
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Preview Dialog */}
+            <PreviewDialog
+                open={previewOpen}
+                onClose={() => setPreviewOpen(false)}
+                fornitoreId={selectedFornitoreId}
+                nomeFornitore={selectedFornitoreName}
+            />
+        </Box>
+    );
+}

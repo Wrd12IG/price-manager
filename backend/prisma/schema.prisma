@@ -1,0 +1,320 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Fornitore {
+  id                     Int                  @id @default(autoincrement())
+  nomeFornitore          String               @unique
+  urlListino             String?
+  formatoFile            String
+  tipoAccesso            String
+  username               String?
+  passwordEncrypted      String?
+  ftpHost                String?
+  ftpPort                Int?
+  ftpDirectory           String?
+  attivo                 Boolean              @default(true)
+  ultimaSincronizzazione DateTime?
+  frequenzaAggiornamento String               @default("daily")
+  cronExpression         String?
+  encoding               String               @default("UTF-8")
+  separatoreCSV          String               @default(";")
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  listiniRaw             ListinoRaw[]
+  mappatureCampi         MappaturaCampo[]
+  mappatureCategorie     MappaturaCategoria[]
+  masterFileRecords      MasterFile[]
+  regoleMarkup           RegolaMarkup[]
+  supplierFilters        SupplierFilter[]
+
+  @@map("fornitori")
+}
+
+model MappaturaCampo {
+  id                      Int       @id @default(autoincrement())
+  fornitoreId             Int
+  campoOriginale          String
+  campoStandard           String
+  tipoDato                String    @default("string")
+  trasformazioneRichiesta String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  fornitore               Fornitore @relation(fields: [fornitoreId], references: [id], onDelete: Cascade)
+
+  @@unique([fornitoreId, campoStandard])
+  @@map("mappatura_campi")
+}
+
+model MappaturaCategoria {
+  id                 Int       @id @default(autoincrement())
+  fornitoreId        Int
+  categoriaFornitore String
+  categoriaEcommerce String
+  priorita           Int       @default(1)
+  escludi            Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  fornitore          Fornitore @relation(fields: [fornitoreId], references: [id], onDelete: Cascade)
+
+  @@unique([fornitoreId, categoriaFornitore])
+  @@map("mappatura_categorie")
+}
+
+model Marchio {
+  id           Int                 @id @default(autoincrement())
+  nome         String              @unique
+  normalizzato String
+  attivo       Boolean             @default(true)
+  note         String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  masterFiles  MasterFile[]
+  filtri       ProductFilterRule[]
+  regoleMarkup RegolaMarkup[]
+
+  @@index([normalizzato])
+  @@map("marchi")
+}
+
+model Categoria {
+  id           Int                 @id @default(autoincrement())
+  nome         String              @unique
+  normalizzato String
+  attivo       Boolean             @default(true)
+  note         String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  masterFiles  MasterFile[]
+  filtri       ProductFilterRule[]
+  regoleMarkup RegolaMarkup[]
+
+  @@index([normalizzato])
+  @@map("categorie")
+}
+
+model RegolaMarkup {
+  id                 Int          @id @default(autoincrement())
+  fornitoreId        Int?
+  marchioId          Int?
+  categoriaId        Int?
+  tipoRegola         String
+  riferimento        String?
+  markupPercentuale  Float        @default(0)
+  markupFisso        Float        @default(0)
+  costoSpedizione    Float        @default(0)
+  priorita           Int          @default(3)
+  dataInizioValidita DateTime     @default(now())
+  dataFineValidita   DateTime?
+  attiva             Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  masterFiles        MasterFile[]
+  categoria          Categoria?   @relation(fields: [categoriaId], references: [id])
+  marchio            Marchio?     @relation(fields: [marchioId], references: [id])
+  fornitore          Fornitore?   @relation(fields: [fornitoreId], references: [id])
+
+  @@index([tipoRegola])
+  @@index([marchioId])
+  @@index([categoriaId])
+  @@map("regole_markup")
+}
+
+model ListinoRaw {
+  id                   Int       @id @default(autoincrement())
+  fornitoreId          Int
+  dataImportazione     DateTime  @default(now())
+  skuFornitore         String
+  eanGtin              String?
+  descrizioneOriginale String?
+  prezzoAcquisto       Float
+  quantitaDisponibile  Int       @default(0)
+  categoriaFornitore   String?
+  marca                String?
+  altriCampiJson       String?
+  createdAt            DateTime  @default(now())
+  fornitore            Fornitore @relation(fields: [fornitoreId], references: [id], onDelete: Cascade)
+
+  @@index([fornitoreId, skuFornitore])
+  @@index([eanGtin])
+  @@index([dataImportazione])
+  @@map("listini_raw")
+}
+
+model MasterFile {
+  id                      Int            @id @default(autoincrement())
+  eanGtin                 String         @unique
+  skuSelezionato          String
+  fornitoreSelezionatoId  Int
+  nomeProdotto            String?
+  prezzoAcquistoMigliore  Float
+  prezzoVenditaCalcolato  Float
+  quantitaTotaleAggregata Int            @default(0)
+  marchioId               Int?
+  categoriaId             Int?
+  dataUltimoAggiornamento DateTime       @default(now())
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  regolaMarkupId          Int?
+  datiIcecat              DatiIcecat?
+  regolaMarkupApplicata   RegolaMarkup?  @relation(fields: [regolaMarkupId], references: [id])
+  categoria               Categoria?     @relation(fields: [categoriaId], references: [id])
+  marchio                 Marchio?       @relation(fields: [marchioId], references: [id])
+  fornitoreSelezionato    Fornitore      @relation(fields: [fornitoreSelezionatoId], references: [id])
+  outputShopify           OutputShopify?
+
+  @@index([eanGtin])
+  @@index([marchioId])
+  @@index([categoriaId])
+  @@map("master_file")
+}
+
+model DatiIcecat {
+  id                     Int        @id @default(autoincrement())
+  masterFileId           Int        @unique
+  eanGtin                String
+  descrizioneBrave       String?
+  descrizioneLunga       String?
+  specificheTecnicheJson String?
+  urlImmaginiJson        String?
+  bulletPointsJson       String?
+  documentiJson          String?
+  linguaOriginale        String     @default("it")
+  dataScaricamento       DateTime   @default(now())
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+  masterFile             MasterFile @relation(fields: [masterFileId], references: [id], onDelete: Cascade)
+
+  @@index([eanGtin])
+  @@map("dati_icecat")
+}
+
+model OutputShopify {
+  id                    Int        @id @default(autoincrement())
+  masterFileId          Int        @unique
+  handle                String     @unique
+  title                 String
+  bodyHtml              String?
+  vendor                String?
+  productType           String?
+  tags                  String?
+  variantPrice          Float
+  variantCompareAtPrice Float?
+  variantInventoryQty   Int
+  immaginiUrls          String?
+  descrizioneBreve      String?
+  specificheJson        String?
+  metafieldsJson        String?
+  dataGenerazione       DateTime   @default(now())
+  statoCaricamento      String     @default("pending")
+  errorMessage          String?
+  shopifyProductId      String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  masterFile            MasterFile @relation(fields: [masterFileId], references: [id], onDelete: Cascade)
+
+  @@index([statoCaricamento])
+  @@index([dataGenerazione])
+  @@map("output_shopify")
+}
+
+model LogElaborazione {
+  id                 Int      @id @default(autoincrement())
+  dataEsecuzione     DateTime @default(now())
+  faseProcesso       String
+  stato              String
+  dettagliJson       String?
+  durataSecondi      Int?
+  prodottiProcessati Int      @default(0)
+  prodottiErrore     Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  @@index([dataEsecuzione])
+  @@index([faseProcesso])
+  @@index([stato])
+  @@map("log_elaborazioni")
+}
+
+model ConfigurazioneSistema {
+  id          Int      @id @default(autoincrement())
+  chiave      String   @unique
+  valore      String
+  tipo        String   @default("string")
+  descrizione String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("configurazione_sistema")
+}
+
+model SupplierFilter {
+  id               Int       @id @default(autoincrement())
+  fornitoreId      Int
+  nome             String
+  marcheIncluse    String?
+  marcheEscluse    String?
+  categorieIncluse String?
+  categorieEscluse String?
+  eanInclusi       String?
+  eanEsclusi       String?
+  attivo           Boolean   @default(true)
+  note             String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  fornitore        Fornitore @relation(fields: [fornitoreId], references: [id], onDelete: Cascade)
+
+  @@index([fornitoreId])
+  @@index([attivo])
+  @@map("supplier_filters")
+}
+
+model Utente {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
+  passwordHash  String
+  nome          String
+  cognome       String
+  ruolo         String    @default("admin")
+  attivo        Boolean   @default(true)
+  ultimoAccesso DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("utenti")
+}
+
+model ProductFilterRule {
+  id          Int        @id @default(autoincrement())
+  nome        String
+  tipoFiltro  String     @default("custom")
+  marchioId   Int?
+  categoriaId Int?
+  azione      String     @default("include")
+  priorita    Int        @default(1)
+  attiva      Boolean    @default(true)
+  note        String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id])
+  marchio     Marchio?   @relation(fields: [marchioId], references: [id])
+
+  @@index([marchioId])
+  @@index([categoriaId])
+  @@map("product_filter_rules")
+}
+
+model FilterPreset {
+  id          Int      @id @default(autoincrement())
+  nome        String
+  descrizione String?
+  attivo      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("filter_presets")
+}

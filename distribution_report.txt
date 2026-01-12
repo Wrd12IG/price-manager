@@ -1,0 +1,86 @@
+--- Checking Supplier Distribution ---
+
+--- ListinoRaw (Source Data) ---
+Brevi: 9047 products
+Cometa: 7537 products
+Runner: 11585 products
+TOTAL RAW: 28169
+
+--- MasterFile (Filtered & Consolidated) ---
+Brevi: 28 products
+Cometa: 6 products
+Runner: 42 products
+TOTAL MASTER: 76
+
+--- Active Filters ---
+- [INCLUDE] Monitor Asus
+  Brand: ASUS
+  Category: MONITOR
+- [INCLUDE] Asus ALL IN ONE
+  Brand: ASUS
+  Category: ALL IN ONE
+- [INCLUDE] ASUS NOTEBOOK
+  Brand: ASUS
+  Category: NOTEBOOK
+- [INCLUDE] ASUS TASTIERE
+  Brand: ASUS
+  Category: TASTIERE
+- [INCLUDE] ASUS MOUSE
+  Brand: ASUS
+  Category: MOUSE
+- [INCLUDE] ASUS BORSE PER NOTEBOOK
+  Brand: ASUS
+  Category: BORSE PER NOTEBOOK
+- [INCLUDE] ASUS  ACCESSORI
+  Brand: ASUS
+  Category: ACCESSORI
+- [INCLUDE] ASUS TAPPETINI
+  Brand: ASUS
+  Category: tappetini
+- [INCLUDE] ASUS ALIMENTATORI
+  Brand: ASUS
+  Category: ALIMENTATORI
+- [INCLUDE] ASUS MOTHERBOARD
+  Brand: ASUS
+  Category: motherboard
+- [INCLUDE] ASUS SCHEDE VIDEO
+  Brand: ASUS
+  Category: SCHEDE VIDEO
+- [INCLUDE] ASUS CPU DISSIPATORI
+  Brand: ASUS
+  Category: CPU DISSIPATORI
+- [INCLUDE] ASUS CASE
+  Brand: ASUS
+  Category: CASE
+- [INCLUDE] ASUS CASE ACCESSORI
+  Brand: ASUS
+  Category: CASE ACCESSORI
+- [INCLUDE] ASUS CASE VENTOLE
+  Brand: ASUS
+  Category: CASE VENTOLE
+- [INCLUDE] ASUS PC DESKTOP
+  Brand: ASUS
+  Category: pc desktop
+- [INCLUDE] ASUS ALL IN ONE
+  Brand: ASUS
+  Category: ALL IN ONE
+- [INCLUDE] ASUS CUFFIE
+  Brand: ASUS
+  Category: cuffie
+- [INCLUDE] RAM
+  Category: ram
+- [INCLUDE] ASUS COMPUTER
+  Brand: ASUS
+  Category: COMPUTER
+- [INCLUDE] HARD DISK
+  Category: HARD DISK
+- [INCLUDE] ASUS MAIN BOARD
+  Brand: ASUS
+  Category: MAIN BOARD
+- [INCLUDE] ASUS MAINBORAD
+  Brand: ASUS
+  Category: MAINBOARD
+- [INCLUDE] GAMING CHAIR
+  Category: gaming chair
+- [INCLUDE] LICENZE WINDOWS
+  Category: licenze windows

@@ -1,0 +1,45 @@
+                                {/* Progress Bar */}
+                                {(icecatProgress.total > 0) && (
+                                    <Grid item xs={12}>
+                                        <Box sx={{ mt: 2 }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                                <Typography variant="body2" fontWeight={600}>
+                                                    Progresso Arricchimento
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {icecatProgress.enriched.toLocaleString()} / {icecatProgress.total.toLocaleString()} prodotti ({icecatProgress.percentage}%)
+                                                </Typography>
+                                            </Box>
+                                            <LinearProgress 
+                                                variant="determinate" 
+                                                value={icecatProgress.percentage} 
+                                                sx={{ 
+                                                    height: 8, 
+                                                    borderRadius: 4,
+                                                    backgroundColor: 'rgba(0, 176, 155, 0.1)',
+                                                    '& .MuiLinearProgress-bar': {
+                                                        backgroundColor: icecatProgress.isRunning ? '#00b09b' : '#96c93d'
+                                                    }
+                                                }}
+                                            />
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {icecatProgress.isRunning ? (
+                                                        <>
+                                                            🔄 In esecuzione... Rimanenti: {icecatProgress.remaining.toLocaleString()} prodotti
+                                                        </>
+                                                    ) : icecatProgress.percentage === 100 ? (
+                                                        '✅ Arricchimento completato'
+                                                    ) : (
+                                                        `⏸️ In pausa - ${icecatProgress.remaining.toLocaleString()} prodotti da arricchire`
+                                                    )}
+                                                </Typography>
+                                                {icecatProgress.isRunning && icecatProgress.estimatedMinutesRemaining > 0 && (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        ⏱️ Tempo stimato: ~{icecatProgress.estimatedMinutesRemaining} min
+                                                    </Typography>
+                                                )}
+                                            </Box>
+                                        </Box>
+                                    </Grid>
+                                )}

@@ -1,0 +1,94 @@
+{
+  "name": "ecommerce-price-manager-desktop",
+  "version": "1.0.0",
+  "description": "E-commerce Price Manager - Desktop Application by W[r]Digital",
+  "main": "main.js",
+  "author": "W[r]Digital",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-is-dev": "^2.0.0"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "png-to-ico": "^3.0.1"
+  },
+  "build": {
+    "appId": "com.wrdigital.price-manager",
+    "productName": "E-commerce Price Manager",
+    "copyright": "Copyright © 2024 W[r]Digital",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "splash.html",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../",
+        "to": "app",
+        "filter": [
+          "**/*",
+          "!node_modules/**/*",
+          "!frontend/node_modules/**/*",
+          "!backend/node_modules/**/*",
+          "!electron-app/**/*",
+          "!distribution/**/*",
+          "!*.zip",
+          "!*.app/**/*",
+          "!logs/**/*",
+          "!backend/logs/**/*",
+          "!backend/*.csv",
+          "!backend/*.db"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Price Manager",
+      "runAfterFinish": true,
+      "installerLanguages": [
+        "it",
+        "en"
+      ],
+      "language": "1040"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.business"
+    }
+  }
+}
