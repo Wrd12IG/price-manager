@@ -22,6 +22,7 @@ import {
     Dialog,
     DialogTitle,
     DialogContent,
+    DialogContentText,
     DialogActions,
     Select,
     MenuItem,
@@ -171,11 +172,11 @@ export default function ProductFilters() {
             if (editingRuleId) {
                 console.log(`PUT /filters/rules/${editingRuleId}`, ruleData);
                 await axios.put(`${API_BASE_URL}/filters/rules/${editingRuleId}`, ruleData);
-                toast.success('Regola aggiornata');
+                toast.success('Regola aggiornata. Esegui "Consolidamento" per applicare!');
             } else {
                 console.log('POST /filters/rules', ruleData);
                 await axios.post(`${API_BASE_URL}/filters/rules`, ruleData);
-                toast.success('Regola creata');
+                toast.success('Regola creata. Esegui "Consolidamento" per applicare!');
             }
             setShowAddModal(false);
             setEditingRuleId(null);
@@ -220,6 +221,7 @@ export default function ProductFilters() {
     const handleToggleRule = async (id: number, attiva: boolean) => {
         try {
             await axios.patch(`${API_BASE_URL}/filters/rules/${id}/toggle`, { attiva });
+            toast.success('Stato regola aggiornato. Esegui "Consolidamento" per applicare!');
             loadData();
         } catch (error) {
             console.error('Errore nel toggle della regola:', error);
@@ -227,13 +229,27 @@ export default function ProductFilters() {
         }
     };
 
-    const handleDeleteRule = async (id: number) => {
-        if (!confirm('Sei sicuro di voler eliminare questa regola?')) return;
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [ruleToDelete, setRuleToDelete] = useState<number | null>(null);
+
+    const handleOpenDeleteDialog = (id: number) => {
+        setRuleToDelete(id);
+        setDeleteDialogOpen(true);
+    };
+
+    const handleCloseDeleteDialog = () => {
+        setDeleteDialogOpen(false);
+        setRuleToDelete(null);
+    };
+
+    const executeDeleteRule = async () => {
+        if (!ruleToDelete) return;
 
         try {
-            await axios.delete(`${API_BASE_URL}/filters/rules/${id}`);
-            toast.success('Regola eliminata');
+            await axios.delete(`${API_BASE_URL}/filters/rules/${ruleToDelete}`);
+            toast.success('Regola eliminata. Esegui "Consolidamento" per applicare!');
             loadData();
+            handleCloseDeleteDialog();
         } catch (error) {
             console.error('Errore nell\'eliminazione della regola:', error);
             toast.error('Errore eliminazione');
@@ -374,7 +390,7 @@ export default function ProductFilters() {
                                 <TableCell>Nome</TableCell>
                                 <TableCell>Brand</TableCell>
                                 <TableCell>Categoria</TableCell>
-                                <TableCell>Prodotti</TableCell>
+                                <TableCell>Prodotti (Raw)</TableCell>
                                 <TableCell>Azione</TableCell>
                                 <TableCell>Stato</TableCell>
                                 <TableCell>Note</TableCell>
@@ -418,7 +434,7 @@ export default function ProductFilters() {
                                         <IconButton size="small" onClick={() => handleEditRule(rule)} color="primary">
                                             <EditIcon fontSize="small" />
                                         </IconButton>
-                                        <IconButton size="small" onClick={() => handleDeleteRule(rule.id)} color="error">
+                                        <IconButton size="small" onClick={() => handleOpenDeleteDialog(rule.id)} color="error">
                                             <DeleteIcon fontSize="small" />
                                         </IconButton>
                                     </TableCell>
@@ -446,7 +462,7 @@ export default function ProductFilters() {
                                 <TableCell>Nome</TableCell>
                                 <TableCell>Brand</TableCell>
                                 <TableCell>Categoria</TableCell>
-                                <TableCell>Prodotti</TableCell>
+                                <TableCell>Prodotti (Raw)</TableCell>
                                 <TableCell>Azione</TableCell>
                                 <TableCell>Stato</TableCell>
                                 <TableCell>Note</TableCell>
@@ -490,7 +506,7 @@ export default function ProductFilters() {
                                         <IconButton size="small" onClick={() => handleEditRule(rule)} color="primary">
                                             <EditIcon fontSize="small" />
                                         </IconButton>
-                                        <IconButton size="small" onClick={() => handleDeleteRule(rule.id)} color="error">
+                                        <IconButton size="small" onClick={() => handleOpenDeleteDialog(rule.id)} color="error">
                                             <DeleteIcon fontSize="small" />
                                         </IconButton>
                                     </TableCell>
@@ -505,6 +521,31 @@ export default function ProductFilters() {
                     </Table>
                 </TableContainer>
             </Box>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog
+                open={deleteDialogOpen}
+                onClose={handleCloseDeleteDialog}
+                aria-labelledby="alert-dialog-title"
+                aria-describedby="alert-dialog-description"
+            >
+                <DialogTitle id="alert-dialog-title">
+                    {"Conferma Eliminazione"}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText id="alert-dialog-description">
+                        Sei sicuro di voler eliminare questa regola? L'operazione non può essere annullata.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseDeleteDialog} color="inherit">
+                        Annulla
+                    </Button>
+                    <Button onClick={executeDeleteRule} color="error" variant="contained" autoFocus>
+                        Elimina
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Add/Edit Rule Dialog */}
             <Dialog open={showAddModal} onClose={() => setShowAddModal(false)} maxWidth="sm" fullWidth>

@@ -72,6 +72,8 @@ export default function Pricing() {
 
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+    const [ruleToDeleteId, setRuleToDeleteId] = useState<number | null>(null);
 
     const [formData, setFormData] = useState({
         fornitoreId: '' as string | number, // '' = Tutti
@@ -180,13 +182,19 @@ export default function Pricing() {
         }
     };
 
-    const handleDelete = async (id: number) => {
-        if (!confirm('Eliminare questa regola?')) return;
+    const handleDeleteClick = (id: number) => {
+        setRuleToDeleteId(id);
+        setDeleteConfirmationOpen(true);
+    };
 
+    const confirmDelete = async () => {
+        if (!ruleToDeleteId) return;
+
+        setDeleteConfirmationOpen(false); // Close dialog immediately
         const toastId = toast.loading('Eliminazione regola in corso...');
 
         try {
-            const response = await axios.delete(`/api/markup/${id}`);
+            await axios.delete(`/api/markup/${ruleToDeleteId}`);
             toast.update(toastId, {
                 render: 'Regola eliminata con successo!',
                 type: 'success',
@@ -202,6 +210,8 @@ export default function Pricing() {
                 isLoading: false,
                 autoClose: 5000
             });
+        } finally {
+            setRuleToDeleteId(null);
         }
     };
 
@@ -305,7 +315,7 @@ export default function Pricing() {
                                         € {regola.markupFisso} / € {regola.costoSpedizione}
                                     </TableCell>
                                     <TableCell>
-                                        <IconButton size="small" color="error" onClick={() => handleDelete(regola.id)}>
+                                        <IconButton size="small" color="error" onClick={() => handleDeleteClick(regola.id)}>
                                             <DeleteIcon fontSize="small" />
                                         </IconButton>
                                     </TableCell>
@@ -418,6 +428,29 @@ export default function Pricing() {
                     <Button onClick={handleSave} variant="contained">Salva</Button>
                 </DialogActions>
             </Dialog>
+            {/* Confirmation Dialog for Deletion */}
+            <Dialog open={deleteConfirmationOpen} onClose={() => setDeleteConfirmationOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ color: 'error.main', fontWeight: 700 }}>Conferma Eliminazione</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body1">
+                        Sei sicuro di voler eliminare questa regola di pricing? Questa azione ricalcolerà immediatamente i prezzi di tutti i prodotti.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteConfirmationOpen(false)} color="inherit">
+                        Annulla
+                    </Button>
+                    <Button
+                        onClick={confirmDelete}
+                        variant="contained"
+                        color="error"
+                        autoFocus
+                    >
+                        Elimina Regola
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
         </Box>
     );
 }

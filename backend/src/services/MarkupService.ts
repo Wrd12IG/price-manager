@@ -151,6 +151,15 @@ export class MarkupService {
      * Elimina una regola di markup
      */
     static async deleteRegola(id: number) {
+        // Prima scollega la regola dai prodotti che la usano (per evitare FK constraint error)
+        await prisma.masterFile.updateMany({
+            where: { regolaMarkupId: id },
+            data: {
+                regolaMarkupId: null,
+                // Opzionale: potremmo resettare anche il prezzo, ma applicaRegolePrezzi lo farà dopo
+            }
+        });
+
         return prisma.regolaMarkup.delete({
             where: { id }
         });

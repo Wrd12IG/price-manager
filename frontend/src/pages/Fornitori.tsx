@@ -16,6 +16,7 @@ import {
     DialogTitle,
     DialogContent,
     DialogActions,
+    DialogContentText,
     TextField,
     MenuItem,
     CircularProgress,
@@ -76,6 +77,10 @@ export default function Fornitori() {
         encoding: 'UTF-8',
         separatoreCSV: ';',
     });
+
+    // Confirmation States
+    const [deleteId, setDeleteId] = useState<number | null>(null);
+    const [importAllConfirmOpen, setImportAllConfirmOpen] = useState(false);
 
     useEffect(() => {
         fetchFornitori();
@@ -150,11 +155,16 @@ export default function Fornitori() {
         }
     };
 
-    const handleDelete = async (id: number) => {
-        if (!confirm('Sei sicuro di voler eliminare questo fornitore?')) return;
+    const handleOpenDelete = (id: number) => {
+        setDeleteId(id);
+    };
+
+    const executeDelete = async () => {
+        if (!deleteId) return;
+        setDeleteId(null);
 
         try {
-            await axios.delete(`/api/fornitori/${id}`);
+            await axios.delete(`/api/fornitori/${deleteId}`);
             toast.success('Fornitore eliminato');
             fetchFornitori();
         } catch (error) {
@@ -244,8 +254,12 @@ export default function Fornitori() {
         }
     };
 
-    const handleImportAll = async () => {
-        if (!confirm('Sei sicuro di voler avviare l\'aggiornamento di TUTTI i listini attivi?\nL\'operazione potrebbe richiedere alcuni minuti.')) return;
+    const handleOpenImportAll = () => {
+        setImportAllConfirmOpen(true);
+    };
+
+    const executeImportAll = async () => {
+        setImportAllConfirmOpen(false);
 
         const toastId = toast.loading('Aggiornamento massivo in corso... attendere, non chiudere la pagina.');
         try {
@@ -298,7 +312,7 @@ export default function Fornitori() {
                     <Button
                         variant="outlined"
                         startIcon={<CloudDownloadIcon />}
-                        onClick={() => handleImportAll()}
+                        onClick={handleOpenImportAll}
                         sx={{ mr: 2, borderColor: '#333', color: '#333', '&:hover': { borderColor: '#000', backgroundColor: '#f5f5f5' } }}
                     >
                         Aggiorna Tutto
@@ -430,7 +444,7 @@ export default function Fornitori() {
                                         <Tooltip title="Elimina">
                                             <IconButton
                                                 size="small"
-                                                onClick={() => handleDelete(fornitore.id)}
+                                                onClick={() => handleOpenDelete(fornitore.id)}
                                                 color="error"
                                             >
                                                 <DeleteIcon fontSize="small" />
@@ -539,6 +553,53 @@ export default function Fornitori() {
                     <Button onClick={handleCloseDialog}>Annulla</Button>
                     <Button onClick={handleSave} variant="contained">
                         Salva
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog
+                open={!!deleteId}
+                onClose={() => setDeleteId(null)}
+                aria-labelledby="delete-dialog-title"
+            >
+                <DialogTitle id="delete-dialog-title">Elimina Fornitore</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Sei sicuro di voler eliminare questo fornitore?
+                        L'operazione è irreversibile e potrebbe eliminare prodotti associati.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteId(null)} color="inherit">
+                        Annulla
+                    </Button>
+                    <Button onClick={executeDelete} color="error" variant="contained" autoFocus>
+                        Elimina
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Mass Import Confirmation Dialog */}
+            <Dialog
+                open={importAllConfirmOpen}
+                onClose={() => setImportAllConfirmOpen(false)}
+                aria-labelledby="import-all-dialog-title"
+            >
+                <DialogTitle id="import-all-dialog-title">Avvio Aggiornamento Massivo</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Stai per avviare l'aggiornamento di TUTTI i listini attivi.
+                        Questa operazione potrebbe richiedere alcuni minuti.
+                        Vuoi procedere?
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setImportAllConfirmOpen(false)} color="inherit">
+                        Annulla
+                    </Button>
+                    <Button onClick={executeImportAll} variant="contained" autoFocus>
+                        Conferma e Avvia
                     </Button>
                 </DialogActions>
             </Dialog>

@@ -395,7 +395,7 @@ export class MasterFileService {
         if (search) {
             where.OR = [
                 { eanGtin: { contains: search } },
-                { skuFornitore: { contains: search } },
+                { skuSelezionato: { contains: search } },
                 { marchio: { nome: { contains: search } } },
                 { categoria: { nome: { contains: search } } }
             ];

@@ -16,7 +16,18 @@ import {
     TableHead,
     TableRow,
     Chip,
-    CircularProgress
+    CircularProgress,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions,
+    IconButton,
+    TextField,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem
 } from '@mui/material';
 import {
     Schedule as ScheduleIcon,
@@ -27,7 +38,6 @@ import {
     Delete as DeleteIcon,
     Add as AddIcon
 } from '@mui/icons-material';
-import { IconButton, TextField, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 
@@ -54,6 +64,10 @@ export default function Scheduler() {
 
     const [loading, setLoading] = useState(true);
     const [starting, setStarting] = useState(false);
+
+    // Confirmation Dialog States
+    const [scheduleToDelete, setScheduleToDelete] = useState<string | null>(null);
+    const [runConfirmOpen, setRunConfirmOpen] = useState(false);
 
     useEffect(() => {
         fetchStatus();
@@ -120,20 +134,30 @@ export default function Scheduler() {
         }
     };
 
-    const handleRemoveSchedule = async (expression: string) => {
-        if (!confirm(`Rimuovere la schedulazione ${expression}?`)) return;
+    const handleOpenDeleteSchedule = (expression: string) => {
+        setScheduleToDelete(expression);
+    };
+
+    const executeRemoveSchedule = async () => {
+        if (!scheduleToDelete) return;
+
         try {
-            await axios.delete('/api/scheduler/schedules', { data: { expression } });
+            await axios.delete('/api/scheduler/schedules', { data: { expression: scheduleToDelete } });
             toast.success('Schedulazione rimossa');
             fetchSchedules();
         } catch (error: any) {
             toast.error('Errore rimozione schedulazione');
+        } finally {
+            setScheduleToDelete(null);
         }
     };
 
-    const handleRun = async () => {
-        if (!confirm('Avviare manualmente il workflow completo?')) return;
+    const handleOpenRunConfirm = () => {
+        setRunConfirmOpen(true);
+    };
 
+    const executeRun = async () => {
+        setRunConfirmOpen(false);
         setStarting(true);
         try {
             await axios.post('/api/scheduler/run');
@@ -238,7 +262,7 @@ export default function Scheduler() {
                                 variant="contained"
                                 size="large"
                                 startIcon={starting ? <CircularProgress size={20} color="inherit" /> : <PlayIcon sx={{ color: '#FFD700' }} />}
-                                onClick={handleRun}
+                                onClick={handleOpenRunConfirm}
                                 disabled={starting || status.isRunning}
                                 sx={{ alignSelf: 'flex-start' }}
                             >
@@ -387,7 +411,7 @@ export default function Scheduler() {
                                                         {schedule === '0 3 * * *' ? 'Ogni giorno alle 03:00' : 'Personalizzato'}
                                                     </TableCell>
                                                     <TableCell align="right">
-                                                        <IconButton onClick={() => handleRemoveSchedule(schedule)} color="error" size="small">
+                                                        <IconButton onClick={() => handleOpenDeleteSchedule(schedule)} color="error" size="small">
                                                             <DeleteIcon />
                                                         </IconButton>
                                                     </TableCell>
@@ -402,6 +426,7 @@ export default function Scheduler() {
                 </Grid>
             </Grid>
 
+            {/* Logs Table Section */}
             <Typography variant="h5" fontWeight={600} gutterBottom sx={{ mt: 4 }}>
                 Log Esecuzioni Recenti
             </Typography>
@@ -447,6 +472,48 @@ export default function Scheduler() {
                     </TableBody>
                 </Table>
             </TableContainer>
+
+            {/* Dialogs */}
+            <Dialog
+                open={!!scheduleToDelete}
+                onClose={() => setScheduleToDelete(null)}
+                aria-labelledby="delete-schedule-title"
+            >
+                <DialogTitle id="delete-schedule-title">Rimuovere schedulazione?</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Stai per rimuovere la schedulazione: <strong>{scheduleToDelete}</strong>.
+                        L'operazione è irreversibile.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setScheduleToDelete(null)} color="inherit">Annulla</Button>
+                    <Button onClick={executeRemoveSchedule} color="error" variant="contained" autoFocus>
+                        Rimuovi
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={runConfirmOpen}
+                onClose={() => setRunConfirmOpen(false)}
+                aria-labelledby="run-dialog-title"
+            >
+                <DialogTitle id="run-dialog-title">Avviare Workflow Manuale?</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Stai per avviare manualmente l'intero processo di aggiornamento prezzi.
+                        Questo include: Ingestione, Consolidamento, Calcolo Prezzi e Export.
+                        Il processo verrà eseguito in background.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setRunConfirmOpen(false)} color="inherit">Annulla</Button>
+                    <Button onClick={executeRun} color="primary" variant="contained" autoFocus>
+                        Avvia Workflow
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box >
     );
 }

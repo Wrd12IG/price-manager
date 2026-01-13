@@ -16,6 +16,7 @@ import {
     Dialog,
     DialogTitle,
     DialogContent,
+    DialogContentText,
     DialogActions,
     Table,
     TableBody,
@@ -71,6 +72,7 @@ export default function Integrazioni() {
     });
     const [enriching, setEnriching] = useState(false);
     const [editingPassword, setEditingPassword] = useState(false);
+    const [openEnrichConfirm, setOpenEnrichConfirm] = useState(false);
 
     // Icecat Enriched Products Dialog State
     const [openEnrichedDialog, setOpenEnrichedDialog] = useState(false);
@@ -233,11 +235,20 @@ export default function Integrazioni() {
         }
     };
 
-    const handleSync = async () => {
-        // if (!confirm('Avviare la sincronizzazione dei prodotti verso Shopify?')) return;
+    const [openSyncConfirm, setOpenSyncConfirm] = useState(false);
 
+    const handleOpenSyncConfirm = () => {
+        setOpenSyncConfirm(true);
+    };
+
+    const handleCloseSyncConfirm = () => {
+        setOpenSyncConfirm(false);
+    };
+
+    const executeSync = async () => {
         setSyncing(true);
         const toastId = toast.loading('Sincronizzazione in corso...');
+        handleCloseSyncConfirm();
 
         try {
             const response = await axios.post('/api/shopify/sync');
@@ -337,11 +348,18 @@ export default function Integrazioni() {
         }
     };
 
-    const handleEnrich = async () => {
-        if (!confirm('Avviare l\'arricchimento dati da ICecat?')) return;
+    const handleOpenEnrichConfirm = () => {
+        setOpenEnrichConfirm(true);
+    };
 
+    const handleCloseEnrichConfirm = () => {
+        setOpenEnrichConfirm(false);
+    };
+
+    const executeEnrichment = async () => {
         setEnriching(true);
         const toastId = toast.loading('Arricchimento in corso...');
+        handleCloseEnrichConfirm();
 
         try {
             const response = await axios.post('/api/icecat/enrich');
@@ -490,13 +508,38 @@ export default function Integrazioni() {
                                     <Button
                                         variant="contained"
                                         startIcon={enriching ? <CircularProgress size={20} color="inherit" /> : <CloudDownloadIcon sx={{ color: '#FFD700' }} />}
-                                        onClick={handleEnrich}
+                                        onClick={handleOpenEnrichConfirm}
                                         disabled={enriching || !icecatConfig.username}
                                         fullWidth
                                     >
                                         Avvia Arricchimento
                                     </Button>
                                 </Grid>
+                                {/* Confirmation Dialog */}
+                                <Dialog
+                                    open={openEnrichConfirm}
+                                    onClose={handleCloseEnrichConfirm}
+                                    aria-labelledby="alert-dialog-title"
+                                    aria-describedby="alert-dialog-description"
+                                >
+                                    <DialogTitle id="alert-dialog-title">
+                                        {"Avviare arricchimento dati?"}
+                                    </DialogTitle>
+                                    <DialogContent>
+                                        <DialogContentText id="alert-dialog-description">
+                                            Il processo scaricherà schede tecniche, immagini e descrizioni da Icecat per i prodotti nel Master File.
+                                            Nota: Potrebbe richiedere del tempo.
+                                        </DialogContentText>
+                                    </DialogContent>
+                                    <DialogActions>
+                                        <Button onClick={handleCloseEnrichConfirm} color="inherit">
+                                            Annulla
+                                        </Button>
+                                        <Button onClick={executeEnrichment} variant="contained" autoFocus>
+                                            Conferma e Avvia
+                                        </Button>
+                                    </DialogActions>
+                                </Dialog>
 
                                 {/* Progress Bar */}
                                 {(icecatProgress.total > 0) && (
@@ -754,7 +797,7 @@ export default function Integrazioni() {
                                         <Button
                                             variant="contained"
                                             startIcon={syncing ? <CircularProgress size={20} color="inherit" /> : <SyncIcon sx={{ color: '#FFD700' }} />}
-                                            onClick={handleSync}
+                                            onClick={handleOpenSyncConfirm}
                                             disabled={syncing}
                                             sx={{
                                                 px: 4
@@ -763,6 +806,31 @@ export default function Integrazioni() {
                                             Sincronizza con Shopify
                                         </Button>
                                     </Box>
+
+                                    {/* Sync Confirmation Dialog */}
+                                    <Dialog
+                                        open={openSyncConfirm}
+                                        onClose={handleCloseSyncConfirm}
+                                        aria-labelledby="sync-dialog-title"
+                                    >
+                                        <DialogTitle id="sync-dialog-title">
+                                            {"Avviare sincronizzazione Shopify?"}
+                                        </DialogTitle>
+                                        <DialogContent>
+                                            <DialogContentText>
+                                                Stai per inviare i prodotti selezionati e processati al tuo negozio Shopify.
+                                                Questa operazione potrebbe richiedere del tempo a seconda del numero di prodotti.
+                                            </DialogContentText>
+                                        </DialogContent>
+                                        <DialogActions>
+                                            <Button onClick={handleCloseSyncConfirm} color="inherit">
+                                                Annulla
+                                            </Button>
+                                            <Button onClick={executeSync} variant="contained" autoFocus>
+                                                Conferma e Sincronizza
+                                            </Button>
+                                        </DialogActions>
+                                    </Dialog>
 
                                     {/* Shopify Progress Bar */}
                                     {(shopifyProgress.total > 0) && (

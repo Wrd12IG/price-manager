@@ -14,6 +14,7 @@ import {
     DialogTitle,
     DialogContent,
     DialogActions,
+    DialogContentText,
     TextField,
     Typography,
     Chip,
@@ -61,6 +62,10 @@ const Marchi: React.FC = () => {
         attivo: true,
         note: ''
     });
+
+    // Delete Dialog State
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [marchioToDelete, setMarchioToDelete] = useState<Marchio | null>(null);
 
     useEffect(() => {
         fetchMarchi();
@@ -131,7 +136,7 @@ const Marchi: React.FC = () => {
         }
     };
 
-    const handleDelete = async (marchio: Marchio) => {
+    const handleDelete = (marchio: Marchio) => {
         const totalUsage = marchio._count.masterFiles + marchio._count.regoleMarkup + marchio._count.filtri;
 
         if (totalUsage > 0) {
@@ -141,15 +146,23 @@ const Marchi: React.FC = () => {
             return;
         }
 
-        if (window.confirm(`Sei sicuro di voler eliminare il marchio "${marchio.nome}"?`)) {
-            try {
-                await axios.delete(`/api/marchi/${marchio.id}`);
-                toast.success('Marchio eliminato con successo');
-                fetchMarchi();
-            } catch (error: any) {
-                const message = error.response?.data?.error?.message || 'Errore nell\'eliminazione';
-                toast.error(message);
-            }
+        setMarchioToDelete(marchio);
+        setDeleteDialogOpen(true);
+    };
+
+    const executeDelete = async () => {
+        if (!marchioToDelete) return;
+        setDeleteDialogOpen(false);
+
+        try {
+            await axios.delete(`/api/marchi/${marchioToDelete.id}`);
+            toast.success('Marchio eliminato con successo');
+            fetchMarchi();
+        } catch (error: any) {
+            const message = error.response?.data?.error?.message || 'Errore nell\'eliminazione';
+            toast.error(message);
+        } finally {
+            setMarchioToDelete(null);
         }
     };
 
@@ -352,6 +365,29 @@ const Marchi: React.FC = () => {
                     <Button onClick={handleCloseDialog}>Annulla</Button>
                     <Button onClick={handleSave} variant="contained">
                         {editingMarchio ? 'Salva' : 'Crea'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog
+                open={deleteDialogOpen}
+                onClose={() => setDeleteDialogOpen(false)}
+                aria-labelledby="delete-dialog-title"
+            >
+                <DialogTitle id="delete-dialog-title">Conferma eliminazione</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Sei sicuro di voler eliminare il marchio "<strong>{marchioToDelete?.nome}</strong>"?
+                        Questa azione è irreversibile.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteDialogOpen(false)} color="inherit">
+                        Annulla
+                    </Button>
+                    <Button onClick={executeDelete} color="error" variant="contained" autoFocus>
+                        Elimina
                     </Button>
                 </DialogActions>
             </Dialog>

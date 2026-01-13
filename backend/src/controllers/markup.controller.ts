@@ -22,9 +22,13 @@ export const getRegole = asyncHandler(async (req: Request, res: Response) => {
 export const createRegola = asyncHandler(async (req: Request, res: Response) => {
     const regola = await MarkupService.createRegola(req.body);
 
+    // Ricalcola immediatamente i prezzi
+    await MarkupService.applicaRegolePrezzi();
+
     res.status(201).json({
         success: true,
-        data: regola
+        data: regola,
+        message: 'Regola creata e prezzi ricalcolati'
     });
 });
 
@@ -36,9 +40,12 @@ export const deleteRegola = asyncHandler(async (req: Request, res: Response) => 
     const { id } = req.params;
     await MarkupService.deleteRegola(parseInt(id));
 
+    // Ricalcola immediatamente i prezzi per riflettere la cancellazione
+    await MarkupService.applicaRegolePrezzi();
+
     res.json({
         success: true,
-        message: 'Regola eliminata'
+        message: 'Regola eliminata e prezzi ricalcolati'
     });
 });
 

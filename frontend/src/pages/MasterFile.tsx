@@ -15,7 +15,12 @@ import {
     TablePagination,
     Chip,
     CircularProgress,
-    Tooltip
+    Tooltip,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -56,6 +61,7 @@ export default function MasterFile() {
     const [products, setProducts] = useState<MasterProduct[]>([]);
     const [loading, setLoading] = useState(true);
     const [consolidating, setConsolidating] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
 
     // Pagination & Search
     const [page, setPage] = useState(0);
@@ -87,26 +93,46 @@ export default function MasterFile() {
         }
     };
 
-    const handleConsolidate = async () => {
-        if (!confirm('Vuoi avviare il consolidamento del Master File? Questo processo potrebbe richiedere del tempo.')) return;
+    const handleOpenConsolidateDialog = () => {
+        setConfirmOpen(true);
+    };
 
+    const handleCloseConsolidateDialog = () => {
+        if (!consolidating) {
+            setConfirmOpen(false);
+        }
+    };
+
+    const executeConsolidation = async () => {
         setConsolidating(true);
+        // Toast is not needed here as we have the dialog open with loading state, 
+        // but we can keep it or use the dialog to show progress.
+        // Let's use toast for consistency with user expectation but keep dialog open or close it?
+        // Usually, we close dialog and show toast, or keep dialog with spinner.
+        // Let's close dialog and show toast to avoid blocking UI if it takes long.
+        setConfirmOpen(false);
+
         const toastId = toast.loading('Consolidamento in corso...');
 
         try {
             const response = await axios.post('/api/master-file/consolidate');
-            const { processed, created, updated } = response.data.data;
+            // Check response structure carefully
+            const result = response.data?.data || {};
+            const processed = result.processed || 0;
+            const created = result.consolidated || 0; // Backend returns 'consolidated'
+            const updated = result.filtered || 0;
 
             toast.update(toastId, {
-                render: `Consolidamento completato! Processati: ${processed}, Creati: ${created}, Aggiornati: ${updated}`,
+                render: `Consolidamento completato! Prodotti: ${created}`,
                 type: 'success',
                 isLoading: false,
                 autoClose: 5000
             });
             fetchProducts();
         } catch (error: any) {
+            console.error(error);
             toast.update(toastId, {
-                render: error.response?.data?.error?.message || 'Errore durante il consolidamento',
+                render: error.response?.data?.error?.message || error.message || 'Errore durante il consolidamento',
                 type: 'error',
                 isLoading: false,
                 autoClose: 5000
@@ -152,13 +178,40 @@ export default function MasterFile() {
                     <Button
                         variant="contained"
                         startIcon={consolidating ? <CircularProgress size={20} color="inherit" /> : <MergeIcon sx={{ color: '#FFD700' }} />}
-                        onClick={handleConsolidate}
+                        onClick={handleOpenConsolidateDialog}
                         disabled={consolidating}
                     >
                         Aggiorna con Filtri
                     </Button>
                 </Box>
             </Box>
+
+            {/* Consolidate Confirmation Dialog */}
+            <Dialog
+                open={confirmOpen}
+                onClose={handleCloseConsolidateDialog}
+                aria-labelledby="alert-dialog-title"
+                aria-describedby="alert-dialog-description"
+            >
+                <DialogTitle id="alert-dialog-title">
+                    {"Avviare il consolidamento?"}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText id="alert-dialog-description">
+                        Questa operazione applicherà i filtri attivi, selezionerà il miglior prezzo per ogni prodotto e aggiornerà il Master File.
+                        <br /><br />
+                        <strong>Nota:</strong> I dati esistenti nel Master File verranno rigenerati.
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleCloseConsolidateDialog} color="inherit">
+                        Annulla
+                    </Button>
+                    <Button onClick={executeConsolidation} variant="contained" autoFocus>
+                        Conferma e Avvia
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <Paper sx={{ mb: 4, p: 2 }}>
                 <TextField
