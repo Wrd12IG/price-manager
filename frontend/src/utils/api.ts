@@ -2,8 +2,8 @@ import axios from 'axios';
 
 // Create an axios instance that will be used throughout the frontend
 const api = axios.create({
-    baseURL: '/', // assuming the dev server proxies /api/* to backend
-    timeout: 15000,
+    baseURL: (import.meta.env.VITE_API_URL as string) || '/api',
+    timeout: 30000, // Aumentato a 30s per il cloud
 });
 
 // Interceptor to handle 429 Too Many Requests with exponential back‑off

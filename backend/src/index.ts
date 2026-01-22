@@ -98,12 +98,34 @@ app.use('/api/marchi', marchiRoutes);
 app.use('/api/categorie', categorieRoutes);
 app.use('/api/settings', settingsRoutes);
 
-// 404 handler
-app.use((req: Request, res: Response) => {
+// error handler ...
+import path from 'path';
+
+// ... (keep existing imports)
+
+// ...
+
+// API routes
+app.use('/api/auth', authRoutes);
+// ... (other api routes)
+app.use('/api/settings', settingsRoutes);
+
+// Serve static files from the React frontend app
+const publicPath = path.join(__dirname, '../public');
+app.use(express.static(publicPath));
+
+// API 404 handler (only for /api/ routes that didn't match)
+app.use('/api/*', (req: Request, res: Response) => {
     res.status(404).json({
-        error: 'Endpoint non trovato',
+        error: 'Endpoint API non trovato',
         path: req.path
     });
+});
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+    res.sendFile(path.join(publicPath, 'index.html'));
 });
 
 // Error handler (deve essere l'ultimo middleware)
