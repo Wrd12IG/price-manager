@@ -3,16 +3,25 @@ import { FileParserService } from './FileParserService';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
 import axios from 'axios';
+import { decrypt } from '../utils/encryption';
 
 export class ImportService {
+    private static normalizeEAN(ean: string | null): string | null {
+        if (!ean) return null;
+        const cleaned = ean.trim();
+        return (cleaned.length > 0 && cleaned.length <= 14 && /^\d+$/.test(cleaned)) ? cleaned : null;
+    }
+
     static async importaListino(fornitoreId: number): Promise<any> {
+        logger.info(`=== AVVIO IMPORTAZIONE SICURA [ID: ${fornitoreId}] ===`);
+
         const fornitore = await prisma.fornitore.findUnique({
             where: { id: fornitoreId },
             include: { mappatureCampi: true }
         });
 
-        if (!fornitore || !fornitore.urlListino) throw new AppError('Configurazione fornitore incompleta', 400);
-        if (fornitore.mappatureCampi.length === 0) throw new AppError('Mappatura mancante. Vai nella sezione Mappature.', 400);
+        if (!fornitore) throw new AppError('Fornitore non trovato', 404);
+        if (fornitore.mappatureCampi.length === 0) throw new AppError('Mappatura campi mancante. Configurala in "Mappature".', 400);
 
         const map = fornitore.mappatureCampi.reduce((acc: any, m) => {
             acc[m.campoStandard] = m.campoOriginale;
@@ -24,43 +33,60 @@ export class ImportService {
         });
 
         try {
-            const resp = await axios.get(fornitore.urlListino, { responseType: 'stream', timeout: 900000 });
-            await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
+            // USIAMO ARRAYBUFFER (LO STESSO DELLA LENTE CHE FUNZIONA)
+            const axiosConfig: any = { responseType: 'arraybuffer', timeout: 300000 };
+            if (fornitore.tipoAccesso === 'http_auth' && fornitore.username && fornitore.passwordEncrypted) {
+                const password = decrypt(fornitore.passwordEncrypted);
+                axiosConfig.auth = { username: fornitore.username, password };
+            }
 
-            let count = 0;
-            let success = 0;
-            let batch: any[] = [];
+            logger.info(`Scaricamento file...`);
+            const response = await axios.get(fornitore.urlListino!, axiosConfig);
+            const buffer = Buffer.from(response.data);
 
-            await FileParserService.parseFile({
+            const parseResult = await FileParserService.parseFile({
                 format: fornitore.formatoFile,
-                stream: resp.data,
+                buffer: buffer,
                 csvSeparator: fornitore.separatoreCSV,
-                onRow: async (row) => {
-                    count++;
-                    const sku = row[map['sku']] || row[map['ean']];
-                    if (sku) {
-                        batch.push({
-                            fornitoreId,
-                            skuFornitore: sku.toString().trim(),
-                            eanGtin: row[map['ean']]?.toString().trim() || null,
-                            prezzoAcquisto: parseFloat(row[map['prezzo']]?.toString().replace(',', '.') || '0'),
-                            quantitaDisponibile: parseInt(row[map['quantita']] || '0'),
-                            descrizioneOriginale: row[map['nome']]?.toString() || null,
-                            altriCampiJson: JSON.stringify(row)
-                        });
-                    }
-
-                    if (batch.length >= 20) { // Batch piccolo per non saturare Supabase
-                        await prisma.listinoRaw.createMany({ data: [...batch] });
-                        success += batch.length;
-                        batch.length = 0;
-                    }
-                }
+                quote: fornitore.nomeFornitore.toLowerCase().includes('brevi') ? '' : '"'
             });
 
-            if (batch.length > 0) {
-                await prisma.listinoRaw.createMany({ data: batch });
-                success += batch.length;
+            logger.info(`File letto con successo: ${parseResult.totalRows} righe.`);
+
+            // Pulizia DB
+            await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
+
+            let success = 0;
+            const batchSize = 50; // Batch piccolissimi per Supabase
+
+            for (let i = 0; i < parseResult.rows.length; i += batchSize) {
+                const chunk = parseResult.rows.slice(i, i + batchSize);
+                const toInsert = chunk.map(row => {
+                    const sku = row[map['sku']] || row[map['ean']];
+                    const ean = this.normalizeEAN(row[map['ean']]?.toString());
+                    const prezzo = parseFloat(row[map['prezzo']]?.toString().replace(',', '.') || '0');
+
+                    if (!sku && !ean) return null;
+
+                    return {
+                        fornitoreId,
+                        skuFornitore: (sku || ean).toString().trim(),
+                        eanGtin: ean,
+                        descrizioneOriginale: row[map['nome']]?.toString() || null,
+                        prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
+                        quantitaDisponibile: parseInt(row[map['quantita']] || '0'),
+                        altriCampiJson: JSON.stringify(row)
+                    };
+                }).filter(Boolean);
+
+                if (toInsert.length > 0) {
+                    await prisma.listinoRaw.createMany({ data: toInsert as any });
+                    success += toInsert.length;
+                }
+
+                if (i % 1000 === 0) {
+                    logger.info(`Salvataggio: ${i}/${parseResult.totalRows}...`);
+                }
             }
 
             await prisma.logElaborazione.update({
@@ -68,13 +94,17 @@ export class ImportService {
                 data: { stato: 'success', prodottiProcessati: success }
             });
 
-            return { total: count, inserted: success };
+            return { total: parseResult.totalRows, inserted: success };
+
         } catch (e: any) {
+            logger.error(`CRASH IMPORTAZIONE: ${e.message}`);
             await prisma.logElaborazione.update({
                 where: { id: log.id },
                 data: { stato: 'error', dettagliJson: JSON.stringify({ error: e.message }) }
             }).catch(() => { });
-            throw new AppError(e.message, 500);
+
+            // Messaggio che vedrai nella box rossa
+            throw new AppError(`Fallimento Database/File: ${e.message}`, 500);
         }
     }
 }
