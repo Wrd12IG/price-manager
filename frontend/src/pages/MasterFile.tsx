@@ -83,7 +83,7 @@ export default function MasterFile() {
                     search: searchTerm
                 }
             });
-            setProducts(response.data.data);
+            setProducts(response.data?.data || []);
             setTotalRows(response.data.pagination.total);
         } catch (error) {
             console.error(error);

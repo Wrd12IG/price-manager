@@ -179,7 +179,7 @@ export default function Integrazioni() {
                     limit: previewRowsPerPage
                 }
             });
-            setPreviewData(response.data.data.data);
+            setPreviewData(response.data?.data?.data || []);
             setPreviewTotal(response.data.data.total);
         } catch (error) {
             console.error(error);
@@ -319,7 +319,7 @@ export default function Integrazioni() {
                     limit: enrichedRowsPerPage
                 }
             });
-            setEnrichedData(response.data.data.data);
+            setEnrichedData(response.data?.data?.data || []);
             setEnrichedTotal(response.data.data.total);
         } catch (error) {
             console.error(error);

@@ -81,8 +81,8 @@ export default function Scheduler() {
     const fetchStatus = async () => {
         try {
             const response = await axios.get('/api/scheduler/status');
-            setStatus(response.data.data.status);
-            setLogs(response.data.data.logs);
+            setStatus(response.data?.data?.status || "unknown");
+            setLogs(response.data?.data?.logs || []);
         } catch (error) {
             console.error(error);
         } finally {
