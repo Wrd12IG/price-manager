@@ -14,9 +14,15 @@ export const encrypt = (text: string): string => {
  * Decripta una stringa criptata con AES
  */
 export const decrypt = (encryptedText: string): string => {
-    if (!encryptedText) return '';
-    const bytes = CryptoJS.AES.decrypt(encryptedText, ENCRYPTION_KEY);
-    return bytes.toString(CryptoJS.enc.Utf8);
+    if (!encryptedText || encryptedText === '***') return '';
+    try {
+        const bytes = CryptoJS.AES.decrypt(encryptedText, ENCRYPTION_KEY);
+        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+        return decrypted;
+    } catch (e) {
+        console.error('Decryption failed, returning plain text/empty');
+        return '';
+    }
 };
 
 /**

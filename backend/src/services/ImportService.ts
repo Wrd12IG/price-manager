@@ -288,11 +288,18 @@ export class ImportService {
             return { total: processed, inserted, errors };
 
         } catch (error: any) {
-            await prisma.logElaborazione.update({
-                where: { id: log.id },
-                data: { stato: 'error', dettagliJson: JSON.stringify({ error: error.message }) }
-            });
-            throw error;
+            console.error('IMPORT CRASH:', error);
+            try {
+                if (log?.id) {
+                    await prisma.logElaborazione.update({
+                        where: { id: log.id },
+                        data: { stato: 'error', dettagliJson: JSON.stringify({ error: error.message || 'Errore sconosciuto' }) }
+                    });
+                }
+            } catch (logErr) {
+                console.error('Could not update log error state:', logErr);
+            }
+            throw new AppError(error.message || 'Errore durante l\'importazione', 500);
         }
     }
 
