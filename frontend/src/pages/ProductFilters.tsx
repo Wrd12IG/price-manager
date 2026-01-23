@@ -44,7 +44,7 @@ import {
 import { toast } from 'react-toastify';
 import './ProductFilters.css';
 
-const API_BASE_URL = 'http://localhost:3000/api';
+import api from '../utils/api';
 
 interface FilterRule {
     id: number;
@@ -117,9 +117,9 @@ export default function ProductFilters() {
         try {
             setLoading(true);
             const [rulesRes, presetsRes, activePresetRes] = await Promise.all([
-                axios.get(`${API_BASE_URL}/filters/rules`),
-                axios.get(`${API_BASE_URL}/filters/presets`),
-                axios.get(`${API_BASE_URL}/filters/presets/active`)
+                api.get(`/filters/rules`),
+                api.get(`/filters/presets`),
+                api.get(`/filters/presets/active`)
             ]);
 
             setRules(rulesRes.data.data || []);
@@ -136,11 +136,11 @@ export default function ProductFilters() {
     const fetchOptions = async () => {
         try {
             const [marcheRes, categorieRes] = await Promise.all([
-                axios.get(`${API_BASE_URL}/marchi?limit=2000`),
-                axios.get(`${API_BASE_URL}/categorie?limit=2000`)
+                api.get(`/marchi?limit=2000`),
+                api.get(`/categorie?limit=2000`)
             ]);
-            setMarche(marcheRes.data.data);
-            setCategorie(categorieRes.data.data);
+            setMarche(marcheRes.data?.data || []);
+            setCategorie(categorieRes.data?.data || []);
         } catch (error) {
             console.error('Errore caricamento opzioni:', error);
         }
@@ -171,11 +171,11 @@ export default function ProductFilters() {
         try {
             if (editingRuleId) {
                 console.log(`PUT /filters/rules/${editingRuleId}`, ruleData);
-                await axios.put(`${API_BASE_URL}/filters/rules/${editingRuleId}`, ruleData);
+                await api.put(`/filters/rules/${editingRuleId}`, ruleData);
                 toast.success('Regola aggiornata. Esegui "Consolidamento" per applicare!');
             } else {
                 console.log('POST /filters/rules', ruleData);
-                await axios.post(`${API_BASE_URL}/filters/rules`, ruleData);
+                await api.post(`/filters/rules`, ruleData);
                 toast.success('Regola creata. Esegui "Consolidamento" per applicare!');
             }
             setShowAddModal(false);
@@ -220,7 +220,7 @@ export default function ProductFilters() {
 
     const handleToggleRule = async (id: number, attiva: boolean) => {
         try {
-            await axios.patch(`${API_BASE_URL}/filters/rules/${id}/toggle`, { attiva });
+            await api.patch(`/filters/rules/${id}/toggle`, { attiva });
             toast.success('Stato regola aggiornato. Esegui "Consolidamento" per applicare!');
             loadData();
         } catch (error) {
@@ -246,7 +246,7 @@ export default function ProductFilters() {
         if (!ruleToDelete) return;
 
         try {
-            await axios.delete(`${API_BASE_URL}/filters/rules/${ruleToDelete}`);
+            await api.delete(`/filters/rules/${ruleToDelete}`);
             toast.success('Regola eliminata. Esegui "Consolidamento" per applicare!');
             loadData();
             handleCloseDeleteDialog();
@@ -258,7 +258,7 @@ export default function ProductFilters() {
 
     const handleActivatePreset = async (id: number) => {
         try {
-            await axios.post(`${API_BASE_URL}/filters/presets/${id}/activate`);
+            await api.post(`/filters/presets/${id}/activate`);
             toast.success('Preset attivato');
             loadData();
         } catch (error) {
@@ -270,7 +270,7 @@ export default function ProductFilters() {
     const handleTestFilter = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
         try {
-            const response = await axios.post(`${API_BASE_URL}/filters/test`, testData);
+            const response = await api.post(`/filters/test`, testData);
             setTestResult(response.data.data);
         } catch (error) {
             console.error('Errore nel test del filtro:', error);
