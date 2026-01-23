@@ -29,6 +29,16 @@ import settingsRoutes from './routes/settings.routes';
 // Load environment variables
 dotenv.config();
 
+// FIX: Forza SSL per Supabase se manca nelle variabili d'ambiente
+if (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('sslmode=')) {
+    const separator = process.env.DATABASE_URL.includes('?') ? '&' : '?';
+    process.env.DATABASE_URL += `${separator}sslmode=require`;
+}
+if (process.env.DIRECT_URL && !process.env.DIRECT_URL.includes('sslmode=')) {
+    const separator = process.env.DIRECT_URL.includes('?') ? '&' : '?';
+    process.env.DIRECT_URL += `${separator}sslmode=require`;
+}
+
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
 

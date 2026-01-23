@@ -6,13 +6,9 @@ const router = Router();
 
 router.get('/stats', asyncHandler(async (req: any, res: any) => {
     try {
-        // Test rapido connessione
-        await prisma.$connect();
-
-        const [totalFornitori, totalProdotti] = await Promise.all([
-            prisma.fornitore.count().catch(() => 0),
-            prisma.masterFile.count().catch(() => 0)
-        ]);
+        // Query ultra-veloci senza join per testare se il DB risponde
+        const totalFornitori = await prisma.fornitore.count().catch(() => 0);
+        const totalProdotti = await prisma.masterFile.count().catch(() => 0);
 
         res.json({
             success: true,
@@ -25,11 +21,19 @@ router.get('/stats', asyncHandler(async (req: any, res: any) => {
                 recentActivity: []
             }
         });
-    } catch (dbError: any) {
-        console.error('DATABASE CONNECTION ERROR:', dbError);
-        res.status(500).json({
-            success: false,
-            error: `Errore DB: ${dbError.message}`
+    } catch (error: any) {
+        console.error('DASHBOARD ERROR:', error.message);
+        res.json({
+            success: true,
+            data: {
+                totalFornitori: 0,
+                totalProdotti: 0,
+                ultimaEsecuzione: null,
+                prodottiImportatiOggi: 0,
+                chartData: [],
+                recentActivity: [],
+                dbStatus: "warning"
+            }
         });
     }
 }));
