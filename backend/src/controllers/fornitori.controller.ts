@@ -426,9 +426,15 @@ export const previewListino = asyncHandler(async (req: Request, res: Response) =
 
             // HTTP: Download singolo file
             const axiosConfig: any = {
-                responseType: 'arraybuffer',
+                method: 'GET',
+                url: fornitore.urlListino!,
+                responseType: 'stream',
                 timeout: 60000, // Aumentato a 60s
-                validateStatus: (status: number) => status < 500
+                validateStatus: (status: number) => status < 500,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': '*/*'
+                }
             };
 
             if (fornitore.tipoAccesso === 'http_auth' && fornitore.username && fornitore.passwordEncrypted) {
@@ -444,14 +450,9 @@ export const previewListino = asyncHandler(async (req: Request, res: Response) =
                 }
             }
 
-            logger.info(`Preview: Inizio download in streaming da ${fornitore.urlListino}`);
+            logger.info(`Preview: Inizio download in streaming (HTTP) da ${fornitore.urlListino}`);
 
-            const response = await axios({
-                method: 'GET',
-                url: fornitore.urlListino!,
-                responseType: 'stream',
-                timeout: 30000
-            });
+            const response = await axios(axiosConfig);
 
             // Parsing in streaming: si ferma non appena ha le righe necessarie
             const limitRows = parseInt(String(rows)) || 10;
