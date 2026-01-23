@@ -37,20 +37,20 @@ router.get('/stats', asyncHandler(async (req: any, res: any) => {
 
     // Chart Data: Workflow Executions per day
     const pWorkflowPerDay = prisma.$queryRaw`
-        SELECT DATE(dataEsecuzione) as date, COUNT(*) as count 
+        SELECT dataEsecuzione::date as date, COUNT(*) as count 
         FROM log_elaborazioni 
         WHERE dataEsecuzione >= ${sevenDaysAgo} 
         AND faseProcesso = 'WORKFLOW_COMPLETO'
-        GROUP BY DATE(dataEsecuzione)
+        GROUP BY dataEsecuzione::date
     `;
 
     // Chart Data: Shopify Uploads per day
     const pShopifyPerDay = prisma.$queryRaw`
-        SELECT DATE(updatedAt) as date, COUNT(*) as count 
+        SELECT updatedAt::date as date, COUNT(*) as count 
         FROM output_shopify 
         WHERE updatedAt >= ${sevenDaysAgo} 
         AND statoCaricamento = 'uploaded'
-        GROUP BY DATE(updatedAt)
+        GROUP BY updatedAt::date
     `;
 
     const [
