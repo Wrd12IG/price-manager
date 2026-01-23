@@ -4,32 +4,43 @@ import { AppError } from '../middleware/errorHandler';
 
 export class FTPService {
     /**
-     * Tenta la connessione FTP provando sia modalità sicura che normale
+     * Tenta la connessione FTP provando diverse modalità di sicurezza
      */
     private static async smartAccess(client: ftp.Client, config: any) {
-        const accessConfig = {
-            host: config.host,
-            port: config.port,
-            user: config.user,
-            password: config.password,
-            secure: config.secure || false
-        };
+        const modes = [
+            { secure: false, label: 'Normale (Porta 21)' },
+            { secure: true, label: 'Sicuro (Eplicito TLS)' },
+            { secure: 'implicit', label: 'Sicuro (Implicito TLS)' }
+        ];
 
-        try {
-            // Tenta come configurato
-            await client.access(accessConfig);
-        } catch (err: any) {
-            logger.warn(`Primo tentativo FTP fallito (${accessConfig.secure ? 'Sicuro' : 'Normale'}): ${err.message}. Riprovo nell'altra modalità...`);
+        let lastError = null;
 
-            // Se fallisce, prova il contrario
-            accessConfig.secure = !accessConfig.secure;
+        for (const mode of modes) {
             try {
-                await client.access(accessConfig);
-                logger.info(`Connessione FTP riuscita in modalità ${accessConfig.secure ? 'Sicura' : 'Normale'}`);
-            } catch (err2: any) {
-                throw new Error(`Impossibile connettersi al server FTP in nessuna modalità: ${err2.message}`);
+                logger.info(`FTP Attempt: Provando modalità ${mode.label} su ${config.host}:${config.port}...`);
+
+                // Reset client connection state if possible
+                if (client.closed === false) {
+                    client.close();
+                }
+
+                await client.access({
+                    host: config.host,
+                    port: config.port,
+                    user: config.user,
+                    password: config.password,
+                    secure: mode.secure as any
+                });
+
+                logger.info(`✅ FTP Connection Success: Modalità ${mode.label}`);
+                return; // Connesso!
+            } catch (err: any) {
+                lastError = err;
+                logger.warn(`❌ FTP Attempt Fallito (${mode.label}): ${err.message}`);
             }
         }
+
+        throw new Error(`Impossibile connettersi al server FTP ${config.host}:${config.port} dopo vari tentativi. Errore finale: ${lastError?.message}`);
     }
 
     /**
@@ -37,7 +48,6 @@ export class FTPService {
      */
     static async downloadAndMergeFiles(config: any): Promise<Array<{ filename: string; buffer: Buffer }>> {
         const client = new ftp.Client();
-        client.ftp.verbose = false;
         try {
             await this.smartAccess(client, config);
             if (config.directory) await client.cd(config.directory);
@@ -61,7 +71,7 @@ export class FTPService {
             }
             return files;
         } catch (error: any) {
-            throw new AppError(`Errore FTP: ${error.message}`, 500);
+            throw new AppError(error.message, 502);
         } finally {
             client.close();
         }
@@ -72,7 +82,6 @@ export class FTPService {
      */
     static async downloadToStream(config: any, stream: any): Promise<void> {
         const client = new ftp.Client();
-        client.ftp.verbose = false;
         try {
             await this.smartAccess(client, config);
             if (config.directory) await client.cd(config.directory);
@@ -104,14 +113,18 @@ export class FTPService {
     /**
      * Testa la connessione
      */
-    static async testConnection(config: any): Promise<{ success: boolean; fileCount?: number; error?: string }> {
+    static async testConnection(config: any): Promise<{ success: boolean; fileCount?: number; error?: string; details?: any }> {
         const client = new ftp.Client();
         try {
             await this.smartAccess(client, config);
             if (config.directory) await client.cd(config.directory);
             const fileList = await client.list();
-            const fileCount = fileList.filter(f => f.isFile).length;
-            return { success: true, fileCount };
+            const files = fileList.filter(f => f.isFile);
+            return {
+                success: true,
+                fileCount: files.length,
+                details: { filenames: files.slice(0, 10).map(f => f.name) }
+            };
         } catch (error: any) {
             return { success: false, error: error.message };
         } finally {
@@ -126,7 +139,13 @@ export class FTPService {
         const client = new ftp.Client();
         try {
             await this.smartAccess(client, config);
-            if (config.directory) await client.cd(config.directory);
+            if (config.directory) {
+                try {
+                    await client.cd(config.directory);
+                } catch (cdErr: any) {
+                    logger.warn(`Impossibile entrare nella directory ${config.directory}, provo a listare la root: ${cdErr.message}`);
+                }
+            }
             return await client.list();
         } catch (error: any) {
             logger.error(`Errore listing FTP ${config.directory}:`, error.message);

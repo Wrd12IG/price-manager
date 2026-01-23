@@ -374,8 +374,17 @@ export const previewListino = asyncHandler(async (req: Request, res: Response) =
                     directory: fornitore.ftpDirectory || '/'
                 });
 
-                const firstFile = fileList.find(f => f.isFile && (f.name.endsWith('.csv') || f.name.endsWith('.txt')));
-                if (!firstFile) throw new AppError('Nessun file CSV/TXT trovato nella directory FTP', 404);
+                const firstFile = fileList.find(f => f.isFile && (
+                    f.name.toLowerCase().endsWith('.csv') ||
+                    f.name.toLowerCase().endsWith('.txt') ||
+                    f.name.toLowerCase().endsWith('.zip') ||
+                    f.name.toLowerCase().endsWith('.dat')
+                ));
+
+                if (!firstFile) {
+                    const allFileNames = fileList.map(f => f.name).join(', ');
+                    throw new AppError(`Nessun file supportato trovato nella directory FTP. File trovati: ${allFileNames || 'Nessuno'}`, 404);
+                }
 
                 logger.info(`Preview FTP: Utilizzo file ${firstFile.name}`);
 
@@ -410,6 +419,11 @@ export const previewListino = asyncHandler(async (req: Request, res: Response) =
                 };
             }
         } else {
+            // HTTP Check: Se l'utente ha messo un URL FTP ma tipoAccesso è HTTP
+            if (fornitore.urlListino?.startsWith('ftp://')) {
+                throw new AppError('L\'URL configurato è un indirizzo FTP. Per favore cambia "Tipo Accesso" in "FTP/SFTP" e configura i campi Host e Porto separatamente.', 400);
+            }
+
             // HTTP: Download singolo file
             const axiosConfig: any = {
                 responseType: 'arraybuffer',
