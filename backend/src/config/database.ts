@@ -1,41 +1,38 @@
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
+import dotenv from 'dotenv';
 
-// Crea istanza Prisma con logging
-// Configurazione ottimizzata per Supabase/Render
-const prisma = new PrismaClient({
-    log: ['error', 'warn'],
-    errorFormat: 'minimal',
-});
+// Carichiamo le variabili d'ambiente PRIMA di inizializzare Prisma
+dotenv.config();
 
-// Test connessione immediata
-prisma.$connect().catch(err => logger.error('Database connection failed at startup', err));
+// FIX CRITICO: Forza SSL per Supabase se manca
+const fixUrl = (url: string | undefined) => {
+    if (!url) return url;
+    if (url.includes('sslmode=')) return url;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}sslmode=require`;
+};
 
-// Log query in development
-if (process.env.NODE_ENV === 'development') {
-    prisma.$on('query' as never, (e: any) => {
-        logger.debug('Query:', {
-            query: e.query,
-            duration: `${e.duration}ms`
-        });
-    });
+if (process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = fixUrl(process.env.DATABASE_URL);
+}
+if (process.env.DIRECT_URL) {
+    process.env.DIRECT_URL = fixUrl(process.env.DIRECT_URL);
 }
 
-// Log errori
-prisma.$on('error' as never, (e: any) => {
-    logger.error('Prisma Error:', e);
+// Crea istanza Prisma ottimizzata per Supabase/PgBouncer
+const prisma = new PrismaClient({
+    datasources: {
+        db: {
+            url: process.env.DATABASE_URL
+        }
+    },
+    log: ['error', 'warn']
 });
 
-// Log warning
-prisma.$on('warn' as never, (e: any) => {
-    logger.warn('Prisma Warning:', e);
-});
-
-// Gestione graceful shutdown
-// Gestione graceful shutdown
-// process.on('beforeExit', async () => {
-//     await prisma.$disconnect();
-//     logger.info('Database disconnected');
-// });
+// Test connessione silente
+prisma.$connect()
+    .then(() => logger.info('✅ Connessione Database stabilita'))
+    .catch(err => logger.error('❌ Errore connessione Database:', err.message));
 
 export default prisma;
