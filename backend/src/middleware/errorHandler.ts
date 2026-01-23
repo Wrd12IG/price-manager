@@ -21,7 +21,7 @@ export const errorHandler = (
 ) => {
     // Default error
     let statusCode = 500;
-    let message = 'Errore interno del server';
+    let message = err.message;
     let isOperational = false;
 
     // Se è un AppError personalizzato
