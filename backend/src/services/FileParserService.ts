@@ -13,6 +13,7 @@ export interface ParseOptions {
     format: string;
     stream?: Readable;
     buffer?: Buffer;
+    encoding?: string; // Re-added encoding
     csvSeparator?: string;
     quote?: string;
     previewRows?: number;

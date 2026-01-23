@@ -107,4 +107,29 @@ export class ImportService {
             throw new AppError(`Fallimento Database/File: ${e.message}`, 500);
         }
     }
+
+    static async importAllListini(): Promise<{ results: any[]; totalErrors: number }> {
+        logger.info('🚀 Avvio importazione massiva di tutti i listini...');
+
+        const fornitori = await prisma.fornitore.findMany({
+            where: { attivo: true }
+        });
+
+        const results = [];
+        let totalErrors = 0;
+
+        for (const fornitore of fornitori) {
+            try {
+                logger.info(`Processing ${fornitore.nomeFornitore}...`);
+                const result = await this.importaListino(fornitore.id);
+                results.push({ fornitore: fornitore.nomeFornitore, success: true, stats: result });
+            } catch (err: any) {
+                logger.error(`Errore import fornitore ${fornitore.nomeFornitore}: ${err.message}`);
+                results.push({ fornitore: fornitore.nomeFornitore, success: false, error: err.message });
+                totalErrors++;
+            }
+        }
+
+        return { results, totalErrors };
+    }
 }
