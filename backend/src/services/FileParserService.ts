@@ -11,7 +11,7 @@ export interface ParseOptions {
     format: string;
     stream?: Readable;
     buffer?: Buffer;
-    encoding?: string; // Support for character encoding
+    encoding?: string;
     csvSeparator?: string;
     quote?: string;
     previewRows?: number;
@@ -20,7 +20,7 @@ export interface ParseOptions {
 
 export class FileParserService {
     static async parseFile(options: ParseOptions): Promise<ParseResult> {
-        // Se è Excel usiamo XLSX (che purtroppo richiede memoria, ma per CSV/XML usiamo streaming puro)
+        // Se è Excel
         if (options.format.toLowerCase().includes('excel') || options.format.toLowerCase().includes('xls')) {
             const XLSX = await import('xlsx');
             const workbook = options.buffer ? XLSX.read(options.buffer, { type: 'buffer' }) : null;
@@ -34,7 +34,7 @@ export class FileParserService {
             return { headers, rows: options.onRow ? [] : data, totalRows: data.length };
         }
 
-        // CSV/TSV/TXT STREAMING (RAM ZERO)
+        // CSV/TSV/TXT 
         return new Promise((resolve, reject) => {
             const results: any[] = [];
             let headers: string[] = [];
@@ -42,7 +42,7 @@ export class FileParserService {
             const limit = options.previewRows || Infinity;
 
             const source = options.stream || (options.buffer ? Readable.from(options.buffer) : null);
-            if (!source) return reject(new Error('Nessuna sorgente dati fornita'));
+            if (!source) return reject(new Error('Nessuna sorgente dati'));
 
             const parser = csv({
                 separator: options.csvSeparator || ';',
