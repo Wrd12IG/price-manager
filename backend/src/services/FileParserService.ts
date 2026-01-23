@@ -16,11 +16,12 @@ export interface ParseOptions {
     format: string;
     filePath?: string;
     buffer?: Buffer;
+    stream?: Readable; // Nuova opzione per stream diretto
     encoding?: string;
     csvSeparator?: string;
     quote?: string;
     previewRows?: number;
-    onRow?: (row: any) => Promise<void>; // Callback per lo streaming
+    onRow?: (row: any) => Promise<void>;
 }
 
 export class FileParserService {
@@ -56,12 +57,14 @@ export class FileParserService {
             const limit = options.previewRows || Infinity;
 
             let stream: Readable;
-            if (options.buffer) {
+            if (options.stream) {
+                stream = options.stream;
+            } else if (options.buffer) {
                 stream = Readable.from(options.buffer);
             } else if (options.filePath) {
                 stream = fs.createReadStream(options.filePath);
             } else {
-                return reject(new Error('Nessun input fornito per CSV'));
+                return reject(new Error('Nessun input fornito per CSV/Text'));
             }
 
             const parser = csv({
