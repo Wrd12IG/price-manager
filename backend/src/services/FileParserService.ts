@@ -20,21 +20,6 @@ export interface ParseOptions {
 
 export class FileParserService {
     static async parseFile(options: ParseOptions): Promise<ParseResult> {
-        // Se è Excel
-        if (options.format.toLowerCase().includes('excel') || options.format.toLowerCase().includes('xls')) {
-            const XLSX = await import('xlsx');
-            const workbook = options.buffer ? XLSX.read(options.buffer, { type: 'buffer' }) : null;
-            if (!workbook) throw new Error('Dati Excel non validi');
-            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(worksheet);
-            const headers = data.length > 0 ? Object.keys(data[0] as object) : [];
-            for (const row of (data as any[])) {
-                if (options.onRow) await options.onRow(row);
-            }
-            return { headers, rows: options.onRow ? [] : data, totalRows: data.length };
-        }
-
-        // CSV/TSV/TXT 
         return new Promise((resolve, reject) => {
             const results: any[] = [];
             let headers: string[] = [];
@@ -55,8 +40,13 @@ export class FileParserService {
                 .on('data', async (row) => {
                     rowCount++;
                     if (options.onRow) {
+                        // BACKPRESSURE: Fermiamo il flusso finché il DB non ha finito
                         parser.pause();
-                        await options.onRow(row).catch(reject);
+                        try {
+                            await options.onRow(row);
+                        } catch (e) {
+                            return reject(e);
+                        }
                         parser.resume();
                     } else if (rowCount <= limit) {
                         results.push(row);

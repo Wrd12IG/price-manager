@@ -2,9 +2,6 @@ import prisma from '../config/database';
 import { FileParserService } from './FileParserService';
 import { logger } from '../utils/logger';
 import axios from 'axios';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 
 export class ImportService {
     static async importaListino(fornitoreId: number): Promise<void> {
@@ -20,34 +17,28 @@ export class ImportService {
             return acc;
         }, {});
 
-        const tempFilePath = path.join(os.tmpdir(), `import_${fornitoreId}.csv`);
-
         try {
-            const response = await axios({
-                method: 'GET',
-                url: fornitore.urlListino,
+            logger.info(`[SERIAL IMPORT] Avvio per ${fornitore.nomeFornitore}`);
+
+            const response = await axios.get(fornitore.urlListino, {
                 responseType: 'stream',
                 timeout: 900000
             });
 
-            const writer = fs.createWriteStream(tempFilePath);
-            response.data.pipe(writer);
-
-            await new Promise((resolve, reject) => {
-                writer.on('finish', resolve);
-                writer.on('error', reject);
-            });
-
             await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
+
+            let success = 0;
 
             await FileParserService.parseFile({
                 format: fornitore.formatoFile,
-                stream: fs.createReadStream(tempFilePath),
+                stream: response.data,
                 csvSeparator: fornitore.separatoreCSV,
                 onRow: async (row) => {
                     const sku = row[map['sku']] || row[map['ean']];
                     const prezzo = parseFloat(row[map['prezzo']]?.toString().replace(',', '.') || '0');
+
                     if (sku) {
+                        // Unica operazione alla volta: sicurezza totale
                         await prisma.listinoRaw.create({
                             data: {
                                 fornitoreId,
@@ -59,6 +50,7 @@ export class ImportService {
                                 altriCampiJson: JSON.stringify(row)
                             }
                         }).catch(() => { });
+                        success++;
                     }
                 }
             });
@@ -68,14 +60,13 @@ export class ImportService {
                 data: { ultimaSincronizzazione: new Date() }
             });
 
+            logger.info(`[SERIAL IMPORT] Completato: ${success} prodotti.`);
+
         } catch (e: any) {
-            console.error('CRITICAL IMPORT ERROR:', e.message);
-        } finally {
-            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+            logger.error(`[SERIAL IMPORT ERROR]: ${e.message}`);
         }
     }
 
-    // QUESTA FUNZIONE È QUELLA CHE MANCAVA E FACEVA FALLIRE IL BUILD!
     static async importAllListini(): Promise<any> {
         const fornitori = await prisma.fornitore.findMany({ where: { attivo: true } });
         for (const f of fornitori) {
