@@ -403,7 +403,7 @@ export default function Fornitori() {
                                             ? new Date(fornitore.ultimaSincronizzazione).toLocaleString('it-IT')
                                             : 'Mai'}
                                     </TableCell>
-                                    <TableCell>{fornitore._count?.listiniRaw.toLocaleString() || 0}</TableCell>
+                                    <TableCell>{(fornitore._count?.listiniRaw ?? 0).toLocaleString()}</TableCell>
                                     <TableCell align="right">
                                         <Tooltip title="Testa connessione">
                                             <IconButton
