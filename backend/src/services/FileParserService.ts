@@ -1,5 +1,6 @@
 import csv from 'csv-parser';
 import { Readable } from 'stream';
+import { logger } from '../utils/logger';
 
 export interface ParseResult {
     headers: string[];
@@ -35,19 +36,32 @@ export class FileParserService {
                 mapHeaders: ({ header }) => header.trim()
             });
 
-            // Se il separatore è quello di default (;) ma dopo 1 riga vediamo che non ci sono colonne, 
-            // potremmo essere di fronte a un file con pipe o altro. Consideriamo l'aggiunta di una logica di auto-detect in futuro.
+            const cleanup = () => {
+                if (options.stream && (options.stream as any).destroy) {
+                    (options.stream as any).destroy();
+                }
+            };
 
             source.pipe(parser)
                 .on('headers', (h) => { headers = h; })
                 .on('data', async (row) => {
                     rowCount++;
+                    if (rowCount > limit) {
+                        // Smettiamo di leggere se abbiamo superato il limite di anteprima
+                        if (!options.onRow) {
+                            source.unpipe(parser);
+                            parser.end();
+                            cleanup();
+                            return;
+                        }
+                    }
+
                     if (options.onRow) {
-                        // BACKPRESSURE: Fermiamo il flusso finché il DB non ha finito
                         parser.pause();
                         try {
                             await options.onRow(row);
                         } catch (e) {
+                            cleanup();
                             return reject(e);
                         }
                         parser.resume();
@@ -55,8 +69,18 @@ export class FileParserService {
                         results.push(row);
                     }
                 })
-                .on('end', () => resolve({ headers, rows: results, totalRows: rowCount }))
-                .on('error', reject);
+                .on('end', () => {
+                    if (headers.length === 0 && rowCount > 0) {
+                        // Se non abbiamo trovato header ma abbiamo righe, proviamo a generarli
+                        headers = Object.keys(results[0] || {});
+                    }
+                    resolve({ headers, rows: results, totalRows: rowCount });
+                })
+                .on('error', (err) => {
+                    logger.error(`Errore parsing file: ${err.message}`);
+                    cleanup();
+                    reject(err);
+                });
         });
     }
 }
