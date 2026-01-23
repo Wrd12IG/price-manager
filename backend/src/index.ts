@@ -29,7 +29,7 @@ import settingsRoutes from './routes/settings.routes';
 // Load environment variables
 dotenv.config();
 
-}
+
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
