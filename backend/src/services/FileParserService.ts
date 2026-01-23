@@ -1,9 +1,13 @@
 import csv from 'csv-parser';
 import * as XLSX from 'xlsx';
-import fs from 'fs';
 import { Readable } from 'stream';
 import { AppError } from '../middleware/errorHandler';
-import { logger } from '../utils/logger';
+
+export interface ParseResult {
+    headers: string[];
+    rows: any[];
+    totalRows: number;
+}
 
 export interface ParseOptions {
     format: string;
@@ -11,22 +15,19 @@ export interface ParseOptions {
     buffer?: Buffer;
     csvSeparator?: string;
     quote?: string;
+    previewRows?: number;
     onRow?: (row: any) => Promise<void>;
 }
 
 export class FileParserService {
-    static async parseFile(options: ParseOptions): Promise<{ totalRows: number }> {
-        if (options.format.toLowerCase().includes('excel') || options.format.toLowerCase().includes('xls')) {
-            return await this.parseExcel(options);
-        }
-        return await this.parseCSV(options);
-    }
-
-    private static async parseCSV(options: ParseOptions): Promise<{ totalRows: number }> {
+    static async parseFile(options: ParseOptions): Promise<ParseResult> {
         return new Promise((resolve, reject) => {
+            const results: any[] = [];
+            let headers: string[] = [];
             let rowCount = 0;
-            const source = options.stream || (options.buffer ? Readable.from(options.buffer) : null);
+            const limit = options.previewRows || Infinity;
 
+            const source = options.stream || (options.buffer ? Readable.from(options.buffer) : null);
             if (!source) return reject(new Error('Nessuna sorgente dati'));
 
             const parser = csv({
@@ -35,41 +36,20 @@ export class FileParserService {
                 mapHeaders: ({ header }) => header.trim()
             });
 
-            // Usiamo un flag per gestire il backpressure (evitare crash di memoria)
-            let isProcessing = false;
-
             source.pipe(parser)
+                .on('headers', (h) => { headers = h; })
                 .on('data', async (row) => {
                     rowCount++;
                     if (options.onRow) {
-                        if (isProcessing) parser.pause();
-                        isProcessing = true;
-                        try {
-                            await options.onRow(row);
-                        } catch (e) {
-                            source.unpipe(parser);
-                            return reject(e);
-                        }
-                        isProcessing = false;
+                        parser.pause();
+                        await options.onRow(row).catch(reject);
                         parser.resume();
+                    } else if (rowCount <= limit) {
+                        results.push(row);
                     }
                 })
-                .on('end', () => resolve({ totalRows: rowCount }))
-                .on('error', (err) => reject(err));
+                .on('end', () => resolve({ headers, rows: results, totalRows: rowCount }))
+                .on('error', reject);
         });
-    }
-
-    private static async parseExcel(options: ParseOptions): Promise<{ totalRows: number }> {
-        const XLSX = await import('xlsx');
-        const workbook = options.buffer ? XLSX.read(options.buffer, { type: 'buffer' }) : null;
-        if (!workbook) throw new Error('Input Excel non valido');
-
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(worksheet);
-
-        for (const row of data) {
-            if (options.onRow) await options.onRow(row);
-        }
-        return { totalRows: data.length };
     }
 }

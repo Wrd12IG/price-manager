@@ -3,67 +3,57 @@ import { FileParserService } from './FileParserService';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
 import axios from 'axios';
-import { decrypt } from '../utils/encryption';
 
 export class ImportService {
     static async importaListino(fornitoreId: number): Promise<any> {
-        logger.info(`=== START IMPORT [ID: ${fornitoreId}] ===`);
-
         const fornitore = await prisma.fornitore.findUnique({
             where: { id: fornitoreId },
             include: { mappatureCampi: true }
         });
 
-        if (!fornitore) throw new AppError('Fornitore non trovato', 404);
-        if (!fornitore.urlListino) throw new AppError('URL listino mancante nel fornitore', 400);
-        if (fornitore.mappatureCampi.length === 0) throw new AppError('Mappatura campi mancante. Configurala nella sezione Mappature.', 400);
+        if (!fornitore || !fornitore.urlListino) throw new AppError('Configurazione fornitore incompleta', 400);
+        if (fornitore.mappatureCampi.length === 0) throw new AppError('Mappatura mancante. Vai nella sezione Mappature.', 400);
 
-        const mapConfig: Record<string, string> = {};
-        fornitore.mappatureCampi.forEach(m => mapConfig[m.campoStandard] = m.campoOriginale);
+        const map = fornitore.mappatureCampi.reduce((acc: any, m) => {
+            acc[m.campoStandard] = m.campoOriginale;
+            return acc;
+        }, {});
 
         const log = await prisma.logElaborazione.create({
             data: { faseProcesso: `IMPORT_${fornitore.nomeFornitore}`, stato: 'running' }
         });
 
         try {
-            // Download flessibile
-            const response = await axios.get(fornitore.urlListino, {
-                responseType: 'stream',
-                timeout: 60000
-            });
-
+            const resp = await axios.get(fornitore.urlListino, { responseType: 'stream', timeout: 900000 });
             await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
 
-            let processed = 0;
+            let count = 0;
             let success = 0;
-            const batch: any[] = [];
+            let batch: any[] = [];
 
             await FileParserService.parseFile({
                 format: fornitore.formatoFile,
-                stream: response.data,
+                stream: resp.data,
                 csvSeparator: fornitore.separatoreCSV,
                 onRow: async (row) => {
-                    processed++;
-                    const sku = row[mapConfig['sku']]?.toString().trim();
-                    const ean = row[mapConfig['ean']]?.toString().trim();
-                    const prezzo = parseFloat(row[mapConfig['prezzo']]?.toString().replace(',', '.') || '0');
-
-                    if (sku || ean) {
+                    count++;
+                    const sku = row[map['sku']] || row[map['ean']];
+                    if (sku) {
                         batch.push({
                             fornitoreId,
-                            skuFornitore: (sku || ean).toString(),
-                            eanGtin: ean,
-                            descrizioneOriginale: row[mapConfig['nome']]?.toString(),
-                            prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
-                            quantitaDisponibile: parseInt(row[mapConfig['quantita']] || '0'),
+                            skuFornitore: sku.toString().trim(),
+                            eanGtin: row[map['ean']]?.toString().trim() || null,
+                            prezzoAcquisto: parseFloat(row[map['prezzo']]?.toString().replace(',', '.') || '0'),
+                            quantitaDisponibile: parseInt(row[map['quantita']] || '0'),
+                            descrizioneOriginale: row[map['nome']]?.toString() || null,
                             altriCampiJson: JSON.stringify(row)
                         });
+                    }
 
-                        if (batch.length >= 50) {
-                            await prisma.listinoRaw.createMany({ data: [...batch] });
-                            success += batch.length;
-                            batch.length = 0;
-                        }
+                    if (batch.length >= 20) { // Batch piccolo per non saturare Supabase
+                        await prisma.listinoRaw.createMany({ data: [...batch] });
+                        success += batch.length;
+                        batch.length = 0;
                     }
                 }
             });
@@ -78,17 +68,13 @@ export class ImportService {
                 data: { stato: 'success', prodottiProcessati: success }
             });
 
-            return { total: processed, inserted: success };
-
-        } catch (error: any) {
-            logger.error(`CRITICAL FAILURE fornitore ${fornitoreId}:`, error.message);
+            return { total: count, inserted: success };
+        } catch (e: any) {
             await prisma.logElaborazione.update({
                 where: { id: log.id },
-                data: { stato: 'error', dettagliJson: JSON.stringify({ error: error.message }) }
+                data: { stato: 'error', dettagliJson: JSON.stringify({ error: e.message }) }
             }).catch(() => { });
-
-            // Lanciamo l'errore con un messaggio che il frontend DEVE leggere
-            throw new AppError(`Errore Importazione: ${error.message}`, 500);
+            throw new AppError(e.message, 500);
         }
     }
 }
