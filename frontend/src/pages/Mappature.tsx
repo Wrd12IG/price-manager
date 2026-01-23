@@ -155,7 +155,7 @@ export default function Mappature() {
                                 onChange={(e: SelectChangeEvent) => setSelectedFornitoreId(e.target.value)}
                             >
                                 <MenuItem value=""><em>Nessuno</em></MenuItem>
-                                {fornitori.map(f => (
+                                {fornitori?.map(f => (
                                     <MenuItem key={f.id} value={f.id.toString()}>{f.nomeFornitore}</MenuItem>
                                 ))}
                             </Select>
@@ -163,7 +163,7 @@ export default function Mappature() {
                     </Grid>
                     <Grid item xs={12} md={6}>
                         {selectedFornitoreId && (
-                            <Button variant="outlined" onClick={autoMap} disabled={loadingDati || colonneFile.length === 0}>
+                            <Button variant="outlined" onClick={autoMap} disabled={loadingDati || (colonneFile?.length || 0) === 0}>
                                 Auto-Mappa Campi
                             </Button>
                         )}
@@ -207,14 +207,14 @@ export default function Mappature() {
                         </Box>
                     ) : (
                         <>
-                            {colonneFile.length === 0 && (
+                            {(colonneFile?.length || 0) === 0 && (
                                 <Alert severity="warning" sx={{ mb: 3 }}>
                                     Attenzione: Impossibile recuperare le colonne dal file del fornitore.
                                     Puoi comunque visualizzare le mappature salvate sopra, ma per modificarle è necessario che il file sia accessibile.
                                 </Alert>
                             )}
 
-                            {colonneFile.length > 0 && (
+                            {(colonneFile?.length || 0) > 0 && (
                                 <TableContainer component={Paper}>
                                     <Table>
                                         <TableHead>
@@ -224,7 +224,7 @@ export default function Mappature() {
                                             </TableRow>
                                         </TableHead>
                                         <TableBody>
-                                            {campiStandard.map((campo) => (
+                                            {campiStandard?.map((campo) => (
                                                 <TableRow key={campo.key} hover selected={!!mappatura[campo.key]}>
                                                     <TableCell>
                                                         <Box>
@@ -252,7 +252,7 @@ export default function Mappature() {
                                                                         {mappatura[campo.key]} (Salvato - Non trovato nel file)
                                                                     </MenuItem>
                                                                 )}
-                                                                {colonneFile.map((col) => (
+                                                                {colonneFile?.map((col) => (
                                                                     <MenuItem key={col} value={col}>
                                                                         {col}
                                                                     </MenuItem>

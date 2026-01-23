@@ -305,7 +305,7 @@ export default function ProductFilters() {
             <Box className="section presets-section" sx={{ mb: 4 }}>
                 <Typography variant="h6" sx={{ mb: 2 }}>Preset Configurazioni</Typography>
                 <Grid container spacing={2}>
-                    {presets.map(preset => (
+                    {presets?.map(preset => (
                         <Grid item xs={12} sm={6} md={4} key={preset.id}>
                             <Card variant="outlined" sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderColor: preset.attivo ? 'primary.main' : 'divider' }}>
                                 <CardContent sx={{ flexGrow: 1 }}>
@@ -369,10 +369,10 @@ export default function ProductFilters() {
                 </Box>
                 <Box sx={{ display: 'flex', gap: 3 }}>
                     <Typography variant="body2">
-                        <strong>{rules.length}</strong> regole totali
+                        <strong>{(rules?.length || 0)}</strong> regole totali
                     </Typography>
                     <Typography variant="body2">
-                        <strong>{rules.filter(r => r.attiva).length}</strong> attive
+                        <strong>{rules?.filter(r => r.attiva).length}</strong> attive
                     </Typography>
                 </Box>
             </Paper>
@@ -398,7 +398,7 @@ export default function ProductFilters() {
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {rules.filter(r => r.azione === 'include').map(rule => (
+                            {rules?.filter(r => r.azione === 'include').map(rule => (
                                 <TableRow key={rule.id} hover sx={{ opacity: rule.attiva ? 1 : 0.6 }}>
                                     <TableCell>
                                         <Typography fontWeight="bold">{rule.priorita}</Typography>
@@ -440,7 +440,7 @@ export default function ProductFilters() {
                                     </TableCell>
                                 </TableRow>
                             ))}
-                            {rules.filter(r => r.azione === 'include').length === 0 && (
+                            {rules?.filter(r => r.azione === 'include').length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={9} align="center">Nessuna regola di inclusione.</TableCell>
                                 </TableRow>
@@ -470,7 +470,7 @@ export default function ProductFilters() {
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {rules.filter(r => r.azione === 'exclude').map(rule => (
+                            {rules?.filter(r => r.azione === 'exclude').map(rule => (
                                 <TableRow key={rule.id} hover sx={{ opacity: rule.attiva ? 1 : 0.6 }}>
                                     <TableCell>
                                         <Typography fontWeight="bold">{rule.priorita}</Typography>
@@ -512,7 +512,7 @@ export default function ProductFilters() {
                                     </TableCell>
                                 </TableRow>
                             ))}
-                            {rules.filter(r => r.azione === 'exclude').length === 0 && (
+                            {rules?.filter(r => r.azione === 'exclude').length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={9} align="center">Nessuna regola di esclusione.</TableCell>
                                 </TableRow>

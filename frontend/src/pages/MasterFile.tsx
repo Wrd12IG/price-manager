@@ -251,7 +251,7 @@ export default function MasterFile() {
                                         <CircularProgress />
                                     </TableCell>
                                 </TableRow>
-                            ) : products.length === 0 ? (
+                            ) : (products?.length || 0) === 0 ? (
                                 <TableRow>
                                     <TableCell colSpan={6} align="center" sx={{ py: 8 }}>
                                         <Typography color="text.secondary">
@@ -260,7 +260,7 @@ export default function MasterFile() {
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                products.map((product) => (
+                                products?.map((product) => (
                                     <TableRow key={product.id} hover>
                                         <TableCell>
                                             <Box sx={{ display: 'flex', flexDirection: 'column' }}>

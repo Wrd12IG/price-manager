@@ -212,7 +212,7 @@ const Marchi: React.FC = () => {
                 </Box>
 
                 <Alert severity="info" sx={{ mt: 2 }}>
-                    Totale marchi: {filteredMarchi.length} {showActiveOnly && '(solo attivi)'}
+                    Totale marchi: {(filteredMarchi?.length || 0)} {showActiveOnly && '(solo attivi)'}
                 </Alert>
             </Paper>
 
@@ -236,7 +236,7 @@ const Marchi: React.FC = () => {
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {filteredMarchi.map((marchio) => (
+                            {filteredMarchi?.map((marchio) => (
                                 <TableRow key={marchio.id} hover>
                                     <TableCell>{marchio.id}</TableCell>
                                     <TableCell>

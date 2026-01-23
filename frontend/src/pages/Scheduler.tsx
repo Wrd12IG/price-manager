@@ -397,12 +397,12 @@ export default function Scheduler() {
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {schedules.length === 0 ? (
+                                        {(schedules?.length || 0) === 0 ? (
                                             <TableRow>
                                                 <TableCell colSpan={3} align="center">Nessuna schedulazione attiva.</TableCell>
                                             </TableRow>
                                         ) : (
-                                            schedules.map((schedule, idx) => (
+                                            schedules?.map((schedule, idx) => (
                                                 <TableRow key={idx}>
                                                     <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
                                                         {schedule}
@@ -446,12 +446,12 @@ export default function Scheduler() {
                             <TableRow>
                                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}><CircularProgress /></TableCell>
                             </TableRow>
-                        ) : logs.length === 0 ? (
+                        ) : (logs?.length || 0) === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>Nessun log presente.</TableCell>
                             </TableRow>
                         ) : (
-                            logs.map((log) => (
+                            logs?.map((log) => (
                                 <TableRow key={log.id} hover>
                                     <TableCell>{new Date(log.dataEsecuzione).toLocaleString()}</TableCell>
                                     <TableCell>

@@ -212,7 +212,7 @@ const Categorie: React.FC = () => {
                 </Box>
 
                 <Alert severity="info" sx={{ mt: 2 }}>
-                    Totale categorie: {filteredCategorie.length} {showActiveOnly && '(solo attive)'}
+                    Totale categorie: {(filteredCategorie?.length || 0)} {showActiveOnly && '(solo attive)'}
                 </Alert>
             </Paper>
 
@@ -236,7 +236,7 @@ const Categorie: React.FC = () => {
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {filteredCategorie.map((categoria) => (
+                            {filteredCategorie?.map((categoria) => (
                                 <TableRow key={categoria.id} hover>
                                     <TableCell>{categoria.id}</TableCell>
                                     <TableCell>

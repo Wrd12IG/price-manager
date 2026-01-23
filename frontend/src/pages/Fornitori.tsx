@@ -268,7 +268,7 @@ export default function Fornitori() {
 
             // Formatta messaggio
             const successCount = results.filter((r: any) => r.success).length;
-            const failCount = results.length - successCount;
+            const failCount = (results?.length || 0) - successCount;
 
             toast.update(toastId, {
                 render: `Aggiornamento completato! Successi: ${successCount}, Falliti: ${failCount}.`,
@@ -346,7 +346,7 @@ export default function Fornitori() {
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {fornitori.length === 0 ? (
+                        {(fornitori?.length || 0) === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={8} align="center" sx={{ py: 8 }}>
                                     <Typography variant="body1" color="text.secondary">
@@ -355,7 +355,7 @@ export default function Fornitori() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            fornitori.map((fornitore) => (
+                            fornitori?.map((fornitore) => (
                                 <TableRow key={fornitore.id} hover>
                                     <TableCell>
                                         <Typography variant="body2" fontWeight={600}>
