@@ -53,8 +53,8 @@ export default function Mappature() {
                     axios.get('/api/fornitori'),
                     axios.get('/api/mappature/campi/standard')
                 ]);
-                setFornitori(resFornitori.data.data);
-                setCampiStandard(resCampi.data.data);
+                setFornitori(resFornitori.data?.data || []);
+                setCampiStandard(resCampi.data?.data || []);
             } catch (error) {
                 console.error(error);
                 toast.error('Errore inizializzazione dati');
