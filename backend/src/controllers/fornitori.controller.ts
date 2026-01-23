@@ -522,25 +522,19 @@ export const getImportStatus = asyncHandler(async (req: Request, res: Response) 
  */
 export const importListino = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-
-    // Import dinamico del servizio
     const { ImportService } = await import('../services/ImportService');
 
-    try {
-        const result = await ImportService.importaListino(parseInt(id));
+    // Avviamo l'importazione in background SENZA awaitare
+    // In questo modo restituiamo subito una risposta al client e evitiamo il timeout di Render
+    ImportService.importaListino(parseInt(id)).catch(err => {
+        logger.error(`[BACKGROUND IMPORT ERROR] Fornitore ${id}: ${err.message}`);
+    });
 
-        res.json({
-            success: true,
-            message: 'Importazione completata con successo',
-            data: result
-        });
-    } catch (error: any) {
-        logger.error(`Errore importazione fornitore ${id}:`, error);
-        throw new AppError(
-            error instanceof AppError ? error.message : `Errore importazione: ${error.message}`,
-            error instanceof AppError ? error.statusCode : 500
-        );
-    }
+    res.json({
+        success: true,
+        message: 'Importazione avviata in background.',
+        data: { status: 'started' }
+    });
 });
 
 /**
