@@ -145,7 +145,7 @@ export default function Dashboard() {
                 <Grid item xs={12} sm={6} md={3}>
                     <StatCard
                         title="Prodotti Totali"
-                        value={stats?.totalProdotti.toLocaleString() || 0}
+                        value={(stats?.totalProdotti ?? 0).toLocaleString()}
                         icon={<Inventory fontSize="large" sx={{ color: '#FFD700' }} />}
                         color="#000000"
                         subtitle="Nel master file"
@@ -154,7 +154,7 @@ export default function Dashboard() {
                 <Grid item xs={12} sm={6} md={3}>
                     <StatCard
                         title="Sync Shopify Oggi"
-                        value={stats?.prodottiImportatiOggi.toLocaleString() || 0}
+                        value={(stats?.prodottiImportatiOggi ?? 0).toLocaleString()}
                         icon={<TrendingUp fontSize="large" />}
                         color="#FBC02D"
                         subtitle="Prodotti caricati"
