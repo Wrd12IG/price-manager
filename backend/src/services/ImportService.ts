@@ -118,12 +118,27 @@ export class ImportService {
             return { total: totalCount, success: true };
 
         } catch (error: any) {
-            logger.error(`[IMPORT CRASH] Fornitore ${fornitoreId}: ${error.message}`);
+            const errorInfo = {
+                message: error.message || 'Errore sconosciuto',
+                code: error.code,
+                status: error.response?.status,
+                url: error.config?.url
+            };
+
+            logger.error(`[IMPORT CRASH] Fornitore ${fornitoreId}: ${errorInfo.message}`, errorInfo);
+
             await prisma.logElaborazione.update({
                 where: { id: log.id },
-                data: { stato: 'error', dettagliJson: JSON.stringify({ error: error.message }) }
+                data: {
+                    stato: 'error',
+                    dettagliJson: JSON.stringify({
+                        error: errorInfo.message,
+                        dettagli: errorInfo
+                    })
+                }
             }).catch(() => { });
-            return { total: totalCount, success: false, error: error.message };
+
+            return { total: totalCount, success: false, error: errorInfo.message };
         }
     }
 

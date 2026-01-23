@@ -8,6 +8,20 @@ if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true });
 }
 
+/**
+ * Utility per stringificare oggetti con riferimenti circolari in modo sicuro
+ */
+const safeStringify = (obj: any): string => {
+    const cache = new Set();
+    return JSON.stringify(obj, (key, value) => {
+        if (typeof value === 'object' && value !== null) {
+            if (cache.has(value)) return '[Circular]';
+            cache.add(value);
+        }
+        return value;
+    }, 2);
+};
+
 // Definisci formato log
 const logFormat = winston.format.combine(
     winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
@@ -23,7 +37,17 @@ const consoleFormat = winston.format.combine(
     winston.format.printf(({ timestamp, level, message, ...meta }) => {
         let msg = `${timestamp} [${level}]: ${message}`;
         if (Object.keys(meta).length > 0) {
-            msg += ` ${JSON.stringify(meta)}`;
+            try {
+                // Rimuoviamo oggetti potenzialmente circolari o troppo grandi che non vogliamo nei log console
+                const cleanMeta = { ...meta };
+                if (cleanMeta.error && typeof cleanMeta.error !== 'string') {
+                    cleanMeta.error = (cleanMeta.error as any).message || String(cleanMeta.error);
+                }
+                msg += ` ${JSON.stringify(cleanMeta)}`;
+            } catch (e) {
+                // Fallback su safeStringify se JSON.stringify standard fallisce
+                msg += ` [Circular Data]`;
+            }
         }
         return msg;
     })
@@ -39,7 +63,6 @@ export const logger = winston.createLogger({
     exitOnError: false
 });
 
-// Helper per log strutturati
 export const logProcessStart = (processName: string, details?: any) => {
     logger.info(`🚀 Inizio processo: ${processName}`, details);
 };
@@ -48,10 +71,12 @@ export const logProcessEnd = (processName: string, duration: number, details?: a
     logger.info(`✅ Fine processo: ${processName} (${duration}s)`, details);
 };
 
-export const logProcessError = (processName: string, error: Error, details?: any) => {
+export const logProcessError = (processName: string, error: any, details?: any) => {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
     logger.error(`❌ Errore processo: ${processName}`, {
-        error: error.message,
-        stack: error.stack,
+        error: errorMsg,
+        stack: errorStack,
         ...details
     });
 };
