@@ -32,7 +32,7 @@ export class ImportService {
     /**
      * Esegue l'importazione completa del listino di un fornitore
      */
-    static async importaListino(fornitoreId: number, consolidate: boolean = true): Promise<{ total: number; inserted: number; errors: number }> {
+    static async importaListino(fornitoreId: number, consolidate: boolean = false): Promise<{ total: number; inserted: number; errors: number }> {
         logger.info(`Inizio importazione listino fornitore ${fornitoreId} (Consolidamento: ${consolidate})`);
 
         // 1. Recupera fornitore e mappature
@@ -129,6 +129,7 @@ export class ImportService {
                 }
 
                 logger.info(`Scaricamento file da ${fornitore.urlListino}...`);
+logger.info("Tentativo download url: " + fornitore.urlListino);
                 const response = await axios.get(fornitore.urlListino as string, axiosConfig);
                 const buffer = Buffer.from(response.data);
 
