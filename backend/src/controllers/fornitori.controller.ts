@@ -5,6 +5,7 @@ import { encrypt, decrypt } from '../utils/encryption';
 import { logger } from '../utils/logger';
 import axios from 'axios';
 import { ImportService } from '../services/ImportService';
+import { FileParserService } from '../services/FileParserService';
 
 /**
  * GET /api/fornitori
@@ -390,7 +391,30 @@ export const previewListino = asyncHandler(async (req: Request, res: Response) =
                     });
                 }
 
-                mergedRows = FileMergeService.mergeFilesByKeySimple(parsedFiles, 'Codice');
+                // Logica intelligente per trovare la chiave di unione (Cometa usa spesso 'Articolo' o 'Codice')
+                const possibleKeys = ['Articolo', 'Codice', 'SKU', 'PartNumber', 'PART NUMBER', 'EAN', 'CodiceEAN'];
+                let mergeKey = 'Codice'; // Default
+
+                if (parsedFiles.length > 0 && parsedFiles[0].rows.length > 0) {
+                    const firstRow = parsedFiles[0].rows[0];
+                    const firstRowKeys = Object.keys(firstRow);
+
+                    // Cerca se una delle chiavi conosciute esiste nel file
+                    const foundKey = possibleKeys.find(k =>
+                        firstRowKeys.some(fileKey => fileKey.toLowerCase() === k.toLowerCase())
+                    );
+
+                    if (foundKey) {
+                        // Trova la chiave esatta con il casing del file
+                        mergeKey = firstRowKeys.find(fk => fk.toLowerCase() === foundKey.toLowerCase()) || foundKey;
+                    } else if (firstRowKeys.length > 0) {
+                        // Fallback sulla prima colonna se non troviamo chiavi note
+                        mergeKey = firstRowKeys[0];
+                    }
+                }
+
+                logger.info(`Preview: Uso chiave di unione: ${mergeKey}`);
+                mergedRows = FileMergeService.mergeFilesByKeySimple(parsedFiles, mergeKey);
             }
 
             // Estrai headers dal primo record merged
@@ -424,52 +448,31 @@ export const previewListino = asyncHandler(async (req: Request, res: Response) =
                 }
             }
 
-            logger.info(`Preview: Inizio download da ${fornitore.urlListino}`);
+            logger.info(`Preview: Inizio download in streaming da ${fornitore.urlListino}`);
 
-            let response;
-            try {
-                response = await axios.get(fornitore.urlListino!, axiosConfig);
-            } catch (axiosError: any) {
-                logger.error(`Preview: Errore download axios`, axiosError.message);
-                throw new AppError(`Errore connessione al fornitore: ${axiosError.message}`, 502);
-            }
+            const response = await axios({
+                method: 'GET',
+                url: fornitore.urlListino!,
+                responseType: 'stream',
+                timeout: 30000
+            });
 
-            if (response.status !== 200) {
-                throw new AppError(`Errore download listino: HTTP ${response.status}`, 400);
-            }
-
-            logger.info(`Preview: Download completato (${response.data.length} bytes). Parsing...`);
-
-            const buffer = Buffer.from(response.data);
-
-            // Import dinamico con try/catch per debug
-            let FileParserService;
-            try {
-                const module = await import('../services/FileParserService');
-                FileParserService = module.FileParserService;
-            } catch (importError: any) {
-                logger.error('Preview: Errore import FileParserService', importError);
-                throw new AppError('Errore interno server (caricamento servizi)', 500);
-            }
-
-            // Parsing sicuro di rows
-            let limitRows = 5;
-            if (rows) {
-                const parsed = parseInt(String(rows));
-                if (!isNaN(parsed) && parsed > 0) {
-                    limitRows = parsed;
-                }
-            }
-
+            // Parsing in streaming: si ferma non appena ha le righe necessarie
+            const limitRows = parseInt(String(rows)) || 10;
             const parseResult = await FileParserService.parseFile({
                 format: fornitore.formatoFile,
-                buffer: buffer,
+                stream: response.data,
                 encoding: fornitore.encoding,
                 csvSeparator: fornitore.separatoreCSV,
                 previewRows: limitRows
             });
 
-            logger.info(`Preview: Parsing completato. ${parseResult.rows.length} righe.`);
+            // Chiudiamo la connessione axios se il parser non l'ha già fatto
+            if (response.data && typeof response.data.destroy === 'function') {
+                response.data.destroy();
+            }
+
+            logger.info(`Preview: Streaming completato. Estratte ${parseResult.rows.length} righe.`);
 
             result = {
                 headers: parseResult.headers,

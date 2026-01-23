@@ -35,6 +35,9 @@ export class FileParserService {
                 mapHeaders: ({ header }) => header.trim()
             });
 
+            // Se il separatore è quello di default (;) ma dopo 1 riga vediamo che non ci sono colonne, 
+            // potremmo essere di fronte a un file con pipe o altro. Consideriamo l'aggiunta di una logica di auto-detect in futuro.
+
             source.pipe(parser)
                 .on('headers', (h) => { headers = h; })
                 .on('data', async (row) => {
