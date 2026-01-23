@@ -10,8 +10,8 @@ export class ImportService {
         return (cleaned.length > 0 && cleaned.length <= 14 && /^\d+$/.test(cleaned)) ? cleaned : null;
     }
 
-    static async importaListino(fornitoreId: number): Promise<void> {
-        logger.info(`[IMPORT] Starting background import for supplier ${fornitoreId}`);
+    static async importaListino(fornitoreId: number): Promise<{ total: number; success: boolean; error?: string }> {
+        logger.info(`[IMPORT] Starting import for supplier ${fornitoreId}`);
 
         const fornitore = await prisma.fornitore.findUnique({
             where: { id: fornitoreId },
@@ -19,13 +19,11 @@ export class ImportService {
         });
 
         if (!fornitore || !fornitore.urlListino) {
-            logger.error(`[IMPORT] Supplier ${fornitoreId} not found or missing URL`);
-            return;
+            return { total: 0, success: false, error: 'Supplier not found or missing URL' };
         }
 
         if (fornitore.mappatureCampi.length === 0) {
-            logger.error(`[IMPORT] Supplier ${fornitoreId} has no field mappings`);
-            return;
+            return { total: 0, success: false, error: 'No field mappings configured' };
         }
 
         const map = fornitore.mappatureCampi.reduce((acc: any, m) => {
@@ -103,7 +101,7 @@ export class ImportService {
                 data: { stato: 'success', prodottiProcessati: count }
             });
 
-            logger.info(`[IMPORT] Finished import for supplier ${fornitoreId}. Total: ${count}`);
+            return { total: count, success: true };
 
         } catch (error: any) {
             logger.error(`[IMPORT CRASH] Supplier ${fornitoreId}: ${error.message}`);
@@ -111,15 +109,21 @@ export class ImportService {
                 where: { id: log.id },
                 data: { stato: 'error', dettagliJson: JSON.stringify({ error: error.message }) }
             }).catch(() => { });
+            return { total: 0, success: false, error: error.message };
         }
     }
 
-    static async importAllListini(): Promise<{ success: boolean; count: number }> {
+    static async importAllListini(): Promise<{ results: any[]; totalErrors: number }> {
         const fornitori = await prisma.fornitore.findMany({ where: { attivo: true } });
+        const results = [];
+        let totalErrors = 0;
+
         for (const f of fornitori) {
-            // Background call
-            ImportService.importaListino(f.id).catch(err => logger.error(`Error in background all-import: ${err.message}`));
+            const result = await this.importaListino(f.id);
+            results.push({ fornitore: f.nomeFornitore, ...result });
+            if (!result.success) totalErrors++;
         }
-        return { success: true, count: fornitori.length };
+
+        return { results, totalErrors };
     }
 }
