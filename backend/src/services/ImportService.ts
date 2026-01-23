@@ -129,7 +129,7 @@ export class ImportService {
                 }
 
                 logger.info(`Scaricamento file da ${fornitore.urlListino}...`);
-logger.info("Tentativo download url: " + fornitore.urlListino);
+                logger.info("Tentativo download url: " + fornitore.urlListino);
                 const response = await axios.get(fornitore.urlListino as string, axiosConfig);
                 const buffer = Buffer.from(response.data);
 
@@ -157,13 +157,15 @@ logger.info("Tentativo download url: " + fornitore.urlListino);
             });
 
             // 4. Normalizza e Salva
-            const batchSize = 500;
+            // Riduciamo batch size per Supabase Free tier
+            const batchSize = 100;
             let processed = 0;
             let inserted = 0;
             let errors = 0;
             const dataToInsert: any[] = [];
 
-            await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
+            // Pulizia sicura
+            await prisma.listinoRaw.deleteMany({ where: { fornitoreId } }).catch(e => console.error("Clean error:", e));
 
             for (const row of allRows) {
                 try {
@@ -300,7 +302,9 @@ logger.info("Tentativo download url: " + fornitore.urlListino);
             } catch (logErr) {
                 console.error('Could not update log error state:', logErr);
             }
-            throw new AppError(error.message || 'Errore durante l\'importazione', 500);
+            // Non forzare 500 se è un errore già gestito (400, 404, ecc)
+            const status = error.statusCode || 500;
+            throw new AppError(error.message || 'Errore durante l\'importazione', status);
         }
     }
 
