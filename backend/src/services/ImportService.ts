@@ -1,6 +1,10 @@
 import prisma from '../config/database';
 import { FileParserService } from './FileParserService';
+import { logger } from '../utils/logger';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 export class ImportService {
     static async importaListino(fornitoreId: number): Promise<void> {
@@ -16,21 +20,43 @@ export class ImportService {
             return acc;
         }, {});
 
-        try {
-            const response = await axios.get(fornitore.urlListino, { responseType: 'stream', timeout: 900000 });
+        // Creiamo un file temporaneo per non occupare RAM
+        const tempFilePath = path.join(os.tmpdir(), `import_${fornitoreId}_${Date.now()}.csv`);
 
+        try {
+            logger.info(`[IMPORT] Scaricamento file su disco temporaneo: ${tempFilePath}`);
+
+            // Scarichiamo il file pezzetto per pezzetto direttamente su disco
+            const response = await axios({
+                method: 'GET',
+                url: fornitore.urlListino,
+                responseType: 'stream',
+                timeout: 900000
+            });
+
+            const writer = fs.createWriteStream(tempFilePath);
+            response.data.pipe(writer);
+
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+
+            logger.info(`[IMPORT] Scaricamento completato. Inizio parsing...`);
+
+            // Pulizia database prima di iniziare
             await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
 
+            // Parsing dal FILE (RAM quasi a zero)
             await FileParserService.parseFile({
                 format: fornitore.formatoFile,
-                stream: response.data,
+                stream: fs.createReadStream(tempFilePath),
                 csvSeparator: fornitore.separatoreCSV,
                 onRow: async (row) => {
                     const sku = row[map['sku']] || row[map['ean']];
                     const prezzo = parseFloat(row[map['prezzo']]?.toString().replace(',', '.') || '0');
 
                     if (sku) {
-                        // Salvataggio atomico: 1 riga alla volta per sicurezza RAM 100%
                         await prisma.listinoRaw.create({
                             data: {
                                 fornitoreId,
@@ -51,8 +77,15 @@ export class ImportService {
                 data: { ultimaSincronizzazione: new Date() }
             });
 
-        } catch (e) {
-            console.error('ERRORE BACKGROUND IMPORT:', e);
+            logger.info(`[IMPORT] Successo per fornitore ${fornitoreId}`);
+
+        } catch (e: any) {
+            logger.error(`[IMPORT CRITICAL ERROR]: ${e.message}`);
+        } finally {
+            // Puliamo il file temporaneo
+            if (fs.existsSync(tempFilePath)) {
+                fs.unlinkSync(tempFilePath);
+            }
         }
     }
 
