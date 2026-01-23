@@ -116,6 +116,36 @@ export class FTPService {
     }
 
     /**
+     * Scarica un file specifico da una directory FTP (Legacy, usa internamente streaming)
+     */
+    static async downloadSpecificFile(config: {
+        host: string;
+        port: number;
+        user: string;
+        password: string;
+        directory: string;
+        filename: string;
+    }): Promise<{ filename: string; buffer: Buffer }> {
+        const { Writable } = await import('stream');
+        const chunks: Buffer[] = [];
+
+        const writeStream = new Writable({
+            write(chunk: Buffer, encoding, callback) {
+                chunks.push(chunk);
+                callback();
+            }
+        });
+
+        await this.downloadToStream(config, writeStream);
+        const buffer = Buffer.concat(chunks);
+
+        return {
+            filename: config.filename,
+            buffer
+        };
+    }
+
+    /**
      * Testa la connessione FTP
      */
     static async testConnection(config: {
