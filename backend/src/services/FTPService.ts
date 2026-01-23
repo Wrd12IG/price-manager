@@ -78,16 +78,17 @@ export class FTPService {
     }
 
     /**
-     * Scarica un file specifico da una directory FTP
+     * Scarica un file come stream (più efficiente per file grandi)
      */
-    static async downloadSpecificFile(config: {
+    static async downloadToStream(config: {
         host: string;
         port: number;
         user: string;
         password: string;
         directory: string;
         filename: string;
-    }): Promise<{ filename: string; buffer: Buffer }> {
+        secure?: boolean;
+    }, stream: any): Promise<void> {
         const client = new ftp.Client();
         client.ftp.verbose = process.env.NODE_ENV === 'development';
 
@@ -97,34 +98,17 @@ export class FTPService {
                 port: config.port,
                 user: config.user,
                 password: config.password,
-                secure: false
+                secure: config.secure || false
             });
 
-            // Cambia directory
-            await client.cd(config.directory);
+            if (config.directory) {
+                await client.cd(config.directory);
+            }
 
-            // Scarica il file specifico
-            const { Writable } = await import('stream');
-            const chunks: Buffer[] = [];
-
-            const writeStream = new Writable({
-                write(chunk: Buffer, encoding, callback) {
-                    chunks.push(chunk);
-                    callback();
-                }
-            });
-
-            await client.downloadTo(writeStream, config.filename);
-
-            const buffer = Buffer.concat(chunks);
-
-            return {
-                filename: config.filename,
-                buffer
-            };
+            await client.downloadTo(stream, config.filename);
 
         } catch (error: any) {
-            logger.error(`Errore scaricamento ${config.filename}:`, error);
+            logger.error(`Errore streaming FTP ${config.filename}:`, error);
             throw new AppError(`Errore FTP: ${error.message}`, 500);
         } finally {
             client.close();
@@ -140,6 +124,7 @@ export class FTPService {
         user: string;
         password: string;
         directory?: string;
+        secure?: boolean;
     }): Promise<{ success: boolean; fileCount?: number; error?: string }> {
         const client = new ftp.Client();
 
@@ -149,7 +134,7 @@ export class FTPService {
                 port: config.port,
                 user: config.user,
                 password: config.password,
-                secure: false
+                secure: config.secure || false
             });
 
             if (config.directory) {
@@ -158,8 +143,6 @@ export class FTPService {
 
             const fileList = await client.list();
             const fileCount = fileList.filter(f => f.isFile).length;
-
-            client.close();
 
             return {
                 success: true,
@@ -170,6 +153,8 @@ export class FTPService {
                 success: false,
                 error: error.message
             };
+        } finally {
+            client.close();
         }
     }
 

@@ -2,6 +2,9 @@ import prisma from '../config/database';
 import { FileParserService } from './FileParserService';
 import { logger } from '../utils/logger';
 import axios from 'axios';
+import { decrypt } from '../utils/encryption';
+import { FTPService } from './FTPService';
+import { PassThrough } from 'stream';
 
 export class ImportService {
     private static normalizeEAN(ean: string | null): string | null {
@@ -11,19 +14,24 @@ export class ImportService {
     }
 
     static async importaListino(fornitoreId: number): Promise<{ total: number; success: boolean; error?: string }> {
-        logger.info(`[IMPORT] Starting import for supplier ${fornitoreId}`);
+        logger.info(`[IMPORT] Inizio elaborazione fornitore ${fornitoreId}`);
 
         const fornitore = await prisma.fornitore.findUnique({
             where: { id: fornitoreId },
             include: { mappatureCampi: true }
         });
 
-        if (!fornitore || !fornitore.urlListino) {
-            return { total: 0, success: false, error: 'Supplier not found or missing URL' };
+        if (!fornitore) {
+            return { total: 0, success: false, error: 'Fornitore non trovato' };
+        }
+
+        const isFTP = fornitore.tipoAccesso === 'ftp';
+        if (!fornitore.urlListino && !isFTP) {
+            return { total: 0, success: false, error: 'Configurazione incompleta (manca URL o FTP)' };
         }
 
         if (fornitore.mappatureCampi.length === 0) {
-            return { total: 0, success: false, error: 'No field mappings configured' };
+            return { total: 0, success: false, error: 'Nessuna mappatura campi configurata' };
         }
 
         const map = fornitore.mappatureCampi.reduce((acc: any, m) => {
@@ -39,63 +47,62 @@ export class ImportService {
             }
         });
 
-        try {
-            const response = await axios.get(fornitore.urlListino, {
-                responseType: 'stream',
-                timeout: 900000
-            });
+        let totalCount = 0;
 
+        try {
             await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
 
-            let count = 0;
-            let batch: any[] = [];
-            const BATCH_SIZE = 100;
+            if (isFTP) {
+                // --- LOGICA FTP ---
+                const password = fornitore.passwordEncrypted ? decrypt(fornitore.passwordEncrypted) : '';
+                const files = await FTPService.listFiles({
+                    host: fornitore.ftpHost!,
+                    port: fornitore.ftpPort || 21,
+                    user: fornitore.username || 'anonymous',
+                    password,
+                    directory: fornitore.ftpDirectory || '/'
+                });
 
-            await FileParserService.parseFile({
-                format: fornitore.formatoFile,
-                stream: response.data,
-                csvSeparator: fornitore.separatoreCSV,
-                onRow: async (row) => {
-                    count++;
+                const validFiles = files.filter(f => f.isFile && (f.name.endsWith('.csv') || f.name.endsWith('.txt') || f.name.endsWith('.zip')));
+                logger.info(`[FTP] Trovati ${validFiles.length} file validi per ${fornitore.nomeFornitore}`);
 
-                    const skuRaw = row[map['sku']] || row[map['ean']];
-                    const sku = skuRaw ? skuRaw.toString().trim() : null;
-                    const ean = this.normalizeEAN(row[map['ean']]?.toString());
+                for (const file of validFiles) {
+                    const stream = new PassThrough();
 
-                    const prezzoRaw = (row[map['prezzo']] || '0').toString().replace(',', '.');
-                    const prezzo = parseFloat(prezzoRaw);
+                    // Avvolgiamo il download in una promise per gestire il flusso
+                    const downloadPromise = FTPService.downloadToStream({
+                        host: fornitore.ftpHost!,
+                        port: fornitore.ftpPort || 21,
+                        user: fornitore.username || 'anonymous',
+                        password,
+                        directory: fornitore.ftpDirectory || '/',
+                        filename: file.name
+                    }, stream);
 
-                    const quantitaRaw = (row[map['quantita']] || '0').toString();
-                    const quantita = parseInt(quantitaRaw);
+                    await this.processStream(stream, fornitore, map, (count) => {
+                        totalCount += count;
+                        prisma.logElaborazione.update({
+                            where: { id: log.id },
+                            data: { prodottiProcessati: totalCount }
+                        }).catch(() => { });
+                    });
 
-                    if (sku || ean) {
-                        batch.push({
-                            fornitoreId,
-                            skuFornitore: (sku || ean || 'MISSING_SKU').toString(),
-                            eanGtin: ean,
-                            prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
-                            quantitaDisponibile: isNaN(quantita) ? 0 : quantita,
-                            descrizioneOriginale: row[map['nome']]?.toString() || null,
-                            altriCampiJson: JSON.stringify(row)
-                        });
-
-                        if (batch.length >= BATCH_SIZE) {
-                            await prisma.listinoRaw.createMany({ data: [...batch] });
-                            batch = [];
-
-                            if (count % 1000 === 0) {
-                                await prisma.logElaborazione.update({
-                                    where: { id: log.id },
-                                    data: { prodottiProcessati: count }
-                                }).catch(() => { });
-                            }
-                        }
-                    }
+                    await downloadPromise;
                 }
-            });
+            } else {
+                // --- LOGICA HTTP ---
+                const response = await axios.get(fornitore.urlListino!, {
+                    responseType: 'stream',
+                    timeout: 900000
+                });
 
-            if (batch.length > 0) {
-                await prisma.listinoRaw.createMany({ data: batch });
+                await this.processStream(response.data, fornitore, map, (count) => {
+                    totalCount = count;
+                    prisma.logElaborazione.update({
+                        where: { id: log.id },
+                        data: { prodottiProcessati: totalCount }
+                    }).catch(() => { });
+                });
             }
 
             await prisma.fornitore.update({
@@ -105,19 +112,67 @@ export class ImportService {
 
             await prisma.logElaborazione.update({
                 where: { id: log.id },
-                data: { stato: 'success', prodottiProcessati: count }
+                data: { stato: 'success', prodottiProcessati: totalCount }
             });
 
-            return { total: count, success: true };
+            return { total: totalCount, success: true };
 
         } catch (error: any) {
-            logger.error(`[IMPORT CRASH] Supplier ${fornitoreId}: ${error.message}`);
+            logger.error(`[IMPORT CRASH] Fornitore ${fornitoreId}: ${error.message}`);
             await prisma.logElaborazione.update({
                 where: { id: log.id },
                 data: { stato: 'error', dettagliJson: JSON.stringify({ error: error.message }) }
             }).catch(() => { });
-            return { total: 0, success: false, error: error.message };
+            return { total: totalCount, success: false, error: error.message };
         }
+    }
+
+    private static async processStream(stream: any, fornitore: any, map: any, onBatchProgress: (count: number) => void): Promise<void> {
+        let count = 0;
+        let batch: any[] = [];
+        const BATCH_SIZE = 150;
+
+        await FileParserService.parseFile({
+            format: fornitore.formatoFile,
+            stream: stream,
+            csvSeparator: fornitore.separatoreCSV,
+            onRow: async (row) => {
+                count++;
+
+                const skuRaw = row[map['sku']] || row[map['ean']];
+                const sku = skuRaw ? skuRaw.toString().trim() : null;
+                const ean = this.normalizeEAN(row[map['ean']]?.toString());
+
+                const prezzoRaw = (row[map['prezzo']] || '0').toString().replace(',', '.');
+                const prezzo = parseFloat(prezzoRaw);
+
+                const quantitaRaw = (row[map['quantita']] || '0').toString();
+                const quantita = parseInt(quantitaRaw);
+
+                if (sku || ean) {
+                    batch.push({
+                        fornitoreId: fornitore.id,
+                        skuFornitore: (sku || ean || 'N/A').toString(),
+                        eanGtin: ean,
+                        prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
+                        quantitaDisponibile: isNaN(quantita) ? 0 : quantita,
+                        descrizioneOriginale: row[map['nome']]?.toString() || null,
+                        altriCampiJson: JSON.stringify(row)
+                    });
+
+                    if (batch.length >= BATCH_SIZE) {
+                        await prisma.listinoRaw.createMany({ data: [...batch] });
+                        batch = [];
+                        if (count % 1000 === 0) onBatchProgress(count);
+                    }
+                }
+            }
+        });
+
+        if (batch.length > 0) {
+            await prisma.listinoRaw.createMany({ data: batch });
+        }
+        onBatchProgress(count);
     }
 
     static async importAllListini(): Promise<{ results: any[]; totalErrors: number }> {

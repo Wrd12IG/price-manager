@@ -362,71 +362,53 @@ export const previewListino = asyncHandler(async (req: Request, res: Response) =
                     password
                 });
             } else {
-                // Logica generica per altri fornitori FTP
+                // Logica generica per altri fornitori FTP (es. Cometa)
                 const { FTPService } = await import('../services/FTPService');
-                const { FileMergeService } = await import('../services/FileMergeService');
-                const { FileParserService } = await import('../services/FileParserService');
+                const { PassThrough } = await import('stream');
 
-                const files = await FTPService.downloadAndMergeFiles({
+                const fileList = await FTPService.listFiles({
                     host: fornitore.ftpHost!,
                     port: fornitore.ftpPort || 21,
                     user: fornitore.username || 'anonymous',
                     password,
-                    directory: fornitore.ftpDirectory!
+                    directory: fornitore.ftpDirectory || '/'
                 });
 
-                const parsedFiles: Array<{ filename: string; rows: any[] }> = [];
+                const firstFile = fileList.find(f => f.isFile && (f.name.endsWith('.csv') || f.name.endsWith('.txt')));
+                if (!firstFile) throw new AppError('Nessun file CSV/TXT trovato nella directory FTP', 404);
 
-                for (const file of files) {
-                    const parseResult = await FileParserService.parseFile({
-                        format: fornitore.formatoFile,
-                        buffer: file.buffer,
-                        encoding: fornitore.encoding,
-                        csvSeparator: fornitore.separatoreCSV
-                    });
+                logger.info(`Preview FTP: Utilizzo file ${firstFile.name}`);
 
-                    parsedFiles.push({
-                        filename: file.filename,
-                        rows: parseResult.rows
-                    });
-                }
+                const stream = new PassThrough();
+                const limitRows = parseInt(String(rows)) || 10;
 
-                // Logica intelligente per trovare la chiave di unione (Cometa usa spesso 'Articolo' o 'Codice')
-                const possibleKeys = ['Articolo', 'Codice', 'SKU', 'PartNumber', 'PART NUMBER', 'EAN', 'CodiceEAN'];
-                let mergeKey = 'Codice'; // Default
+                FTPService.downloadToStream({
+                    host: fornitore.ftpHost!,
+                    port: fornitore.ftpPort || 21,
+                    user: fornitore.username || 'anonymous',
+                    password,
+                    directory: fornitore.ftpDirectory || '/',
+                    filename: firstFile.name
+                }, stream).catch(err => {
+                    logger.error(`Errore download streaming FTP: ${err.message}`);
+                    stream.destroy();
+                });
 
-                if (parsedFiles.length > 0 && parsedFiles[0].rows.length > 0) {
-                    const firstRow = parsedFiles[0].rows[0];
-                    const firstRowKeys = Object.keys(firstRow);
+                const parseResult = await FileParserService.parseFile({
+                    format: fornitore.formatoFile,
+                    stream: stream,
+                    encoding: fornitore.encoding,
+                    csvSeparator: fornitore.separatoreCSV,
+                    previewRows: limitRows
+                });
 
-                    // Cerca se una delle chiavi conosciute esiste nel file
-                    const foundKey = possibleKeys.find(k =>
-                        firstRowKeys.some(fileKey => fileKey.toLowerCase() === k.toLowerCase())
-                    );
-
-                    if (foundKey) {
-                        // Trova la chiave esatta con il casing del file
-                        mergeKey = firstRowKeys.find(fk => fk.toLowerCase() === foundKey.toLowerCase()) || foundKey;
-                    } else if (firstRowKeys.length > 0) {
-                        // Fallback sulla prima colonna se non troviamo chiavi note
-                        mergeKey = firstRowKeys[0];
-                    }
-                }
-
-                logger.info(`Preview: Uso chiave di unione: ${mergeKey}`);
-                mergedRows = FileMergeService.mergeFilesByKeySimple(parsedFiles, mergeKey);
+                result = {
+                    headers: parseResult.headers,
+                    rows: parseResult.rows,
+                    totalRows: parseResult.totalRows,
+                    previewRows: limitRows
+                };
             }
-
-            // Estrai headers dal primo record merged
-            const headers = mergedRows.length > 0 ? Object.keys(mergedRows[0]) : [];
-
-            result = {
-                headers,
-                rows: mergedRows.slice(0, parseInt(rows as string)),
-                totalRows: mergedRows.length,
-                previewRows: parseInt(rows as string)
-            };
-
         } else {
             // HTTP: Download singolo file
             const axiosConfig: any = {
