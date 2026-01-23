@@ -1,0 +1,18 @@
+ISTRUZIONI DI INSTALLAZIONE
+
+1. Requisiti:
+   - Windows 10/11 o Server
+   - Node.js installato (versione 18 o superiore consigliata)
+
+2. Installazione:
+   - Estrarre tutto il contenuto dello zip in una cartella (es. C:\PriceManager)
+   - Fare doppio click su INSTALL.bat
+   - Attendere il completamento dell'installazione delle dipendenze
+
+3. Avvio:
+   - Fare doppio click su START.bat
+   - Aprire il browser e andare su http://localhost:3000
+
+NOTE:
+- Il database e' incluso (dev.db) con tutti i dati attuali.
+- Per cambiare porta o impostazioni, modificare il file server/.env
