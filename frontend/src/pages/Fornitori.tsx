@@ -198,58 +198,59 @@ export default function Fornitori() {
         let pollingInterval: any;
 
         try {
-            // Avvia polling per mostrare il progresso
+            // 1. Avvia la richiesta di importazione (che ora risponde subito)
+            await api.post(`/fornitori/${id}/import`);
+
+            // 2. Continua il polling finché lo stato non è 'success' o 'error'
             pollingInterval = setInterval(async () => {
                 try {
                     const statusRes = await api.get(`/fornitori/${id}/import-status`);
                     const log = statusRes.data.data;
 
-                    if (log && log.stato === 'running') {
-                        const details = log.dettagliJson ? JSON.parse(log.dettagliJson) : {};
-                        const total = details.totalRows || 0;
-                        const current = log.prodottiProcessati || 0;
-                        const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+                    if (!log) return;
 
+                    const current = log.prodottiProcessati || 0;
+
+                    if (log.stato === 'running') {
                         toast.update(toastId, {
-                            render: `Importazione: ${current}${total > 0 ? ' / ' + total : ''} record (${percent}%)`,
+                            render: `Importazione in corso: ${current.toLocaleString()} prodotti elaborati...`,
                             type: 'default',
                             isLoading: true
                         });
+                    } else if (log.stato === 'success') {
+                        clearInterval(pollingInterval);
+                        toast.update(toastId, {
+                            render: `✅ Importazione completata! Inseriti: ${current.toLocaleString()} prodotti.`,
+                            type: 'success',
+                            isLoading: false,
+                            autoClose: 10000
+                        });
+                        fetchFornitori();
+                    } else if (log.stato === 'error') {
+                        clearInterval(pollingInterval);
+                        const errorMsg = log.dettagliJson ? JSON.parse(log.dettagliJson).error : 'Errore durante l\'elaborazione';
+                        toast.update(toastId, {
+                            render: `❌ Errore: ${errorMsg}`,
+                            type: 'error',
+                            isLoading: false,
+                            autoClose: 10000
+                        });
+                        fetchFornitori();
                     }
                 } catch (e) {
                     // Errore polling silenzioso
                 }
             }, 3000);
 
-            const response = await api.post(`/fornitori/${id}/import`, null, {
-                timeout: 900000 // 15 minuti lato client
-            });
-
-            if (pollingInterval) clearInterval(pollingInterval);
-
-            const { total, inserted, errors } = response.data.data;
-
-            toast.update(toastId, {
-                render: `✅ Importazione completata! Processati: ${total}, Inseriti: ${inserted}, Errori: ${errors}`,
-                type: 'success',
-                isLoading: false,
-                autoClose: 10000
-            });
-            fetchFornitori();
         } catch (error: any) {
             if (pollingInterval) clearInterval(pollingInterval);
-
-            const errorMessage = error.code === 'ECONNABORTED'
-                ? 'Timeout superato. L\'importazione sta continuando in background, controlla tra poco.'
-                : (error.response?.data?.error?.message || 'Errore durante l\'importazione');
-
+            const errorMessage = error.response?.data?.error?.message || 'Errore nell\'avvio importazione';
             toast.update(toastId, {
                 render: errorMessage,
                 type: 'error',
                 isLoading: false,
                 autoClose: 10000
             });
-            console.error(error);
             fetchFornitori();
         }
     };
