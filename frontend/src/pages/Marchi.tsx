@@ -77,7 +77,7 @@ const Marchi: React.FC = () => {
             const params: any = {};
             if (showActiveOnly) params.attivo = 'true';
 
-            const response = await api.get('/api/marchi', { params });
+            const response = await api.get('/marchi', { params });
             setMarchi(response.data?.data || []);
         } catch (error: any) {
             toast.error('Errore nel caricamento dei marchi');
@@ -120,11 +120,11 @@ const Marchi: React.FC = () => {
         try {
             if (editingMarchio) {
                 // Update
-                await api.put(`/api/marchi/${editingMarchio.id}`, formData);
+                await api.put(`/marchi/${editingMarchio.id}`, formData);
                 toast.success('Marchio aggiornato con successo');
             } else {
                 // Create
-                await api.post('/api/marchi', formData);
+                await api.post('/marchi', formData);
                 toast.success('Marchio creato con successo');
             }
 
@@ -155,7 +155,7 @@ const Marchi: React.FC = () => {
         setDeleteDialogOpen(false);
 
         try {
-            await api.delete(`/api/marchi/${marchioToDelete.id}`);
+            await api.delete(`/marchi/${marchioToDelete.id}`);
             toast.success('Marchio eliminato con successo');
             fetchMarchi();
         } catch (error: any) {

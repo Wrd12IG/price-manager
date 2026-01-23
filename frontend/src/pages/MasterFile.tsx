@@ -76,7 +76,7 @@ export default function MasterFile() {
     const fetchProducts = async () => {
         setLoading(true);
         try {
-            const response = await api.get('/api/master-file', {
+            const response = await api.get('/master-file', {
                 params: {
                     page: page + 1,
                     limit: rowsPerPage,
@@ -115,7 +115,7 @@ export default function MasterFile() {
         const toastId = toast.loading('Consolidamento in corso...');
 
         try {
-            const response = await api.post('/api/master-file/consolidate');
+            const response = await api.post('/master-file/consolidate');
             // Check response structure carefully
             const result = response.data?.data || {};
             const processed = result.processed || 0;

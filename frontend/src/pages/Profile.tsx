@@ -41,7 +41,7 @@ export default function Profile() {
 
     const fetchProfile = async () => {
         try {
-            const response = await api.get('/api/settings/profile');
+            const response = await api.get('/settings/profile');
             const { user, settings } = response.data.data;
             setFormData({
                 nome: user.nome || '',
@@ -72,7 +72,7 @@ export default function Profile() {
 
         setSaving(true);
         try {
-            await api.put('/api/settings/profile', formData);
+            await api.put('/settings/profile', formData);
             toast.success('Profilo aggiornato con successo');
         } catch (error: any) {
             console.error('Error updating profile:', error);

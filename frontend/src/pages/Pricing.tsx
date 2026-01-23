@@ -94,8 +94,8 @@ export default function Pricing() {
     const fetchData = async () => {
         try {
             const [regoleRes, fornitoriRes] = await Promise.all([
-                api.get('/api/markup'),
-                api.get('/api/fornitori')
+                api.get('/markup'),
+                api.get('/fornitori')
             ]);
             setRegole(regoleRes.data.data);
             setFornitori(fornitoriRes.data.data);
@@ -110,8 +110,8 @@ export default function Pricing() {
     const fetchOptions = async () => {
         try {
             const [marcheRes, categorieRes] = await Promise.all([
-                api.get('/api/marchi?limit=2000'),
-                api.get('/api/categorie?limit=2000')
+                api.get('/marchi?limit=2000'),
+                api.get('/categorie?limit=2000')
             ]);
             setMarche(marcheRes.data.data);
             setCategorie(categorieRes.data.data);
@@ -162,7 +162,7 @@ export default function Pricing() {
                 costoSpedizione: formData.costoSpedizione
             };
 
-            const response = await api.post('/api/markup', payload);
+            const response = await api.post('/markup', payload);
             toast.update(toastId, {
                 render: 'Regola creata con successo!',
                 type: 'success',
@@ -194,7 +194,7 @@ export default function Pricing() {
         const toastId = toast.loading('Eliminazione regola in corso...');
 
         try {
-            await api.delete(`/api/markup/${ruleToDeleteId}`);
+            await api.delete(`/markup/${ruleToDeleteId}`);
             toast.update(toastId, {
                 render: 'Regola eliminata con successo!',
                 type: 'success',

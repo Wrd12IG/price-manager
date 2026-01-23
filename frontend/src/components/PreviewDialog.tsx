@@ -51,7 +51,7 @@ export default function PreviewDialog({ open, onClose, fornitoreId, nomeFornitor
         setLoading(true);
         setError(null);
         try {
-            const response = await api.get(`/api/fornitori/${fornitoreId}/preview?rows=10`);
+            const response = await api.get(`/fornitori/${fornitoreId}/preview?rows=10`);
             setData(response.data.data);
         } catch (err: any) {
             console.error(err);

@@ -88,7 +88,7 @@ export default function Fornitori() {
 
     const fetchFornitori = async () => {
         try {
-            const response = await api.get('/api/fornitori');
+            const response = await api.get('/fornitori');
             setFornitori(response.data?.data || []);
         } catch (error) {
             toast.error('Errore nel caricamento dei fornitori');
@@ -141,10 +141,10 @@ export default function Fornitori() {
     const handleSave = async () => {
         try {
             if (editingFornitore) {
-                await api.put(`/api/fornitori/${editingFornitore.id}`, formData);
+                await api.put(`/fornitori/${editingFornitore.id}`, formData);
                 toast.success('Fornitore aggiornato con successo');
             } else {
-                await api.post('/api/fornitori', formData);
+                await api.post('/fornitori', formData);
                 toast.success('Fornitore creato con successo');
             }
             handleCloseDialog();
@@ -164,7 +164,7 @@ export default function Fornitori() {
         setDeleteId(null);
 
         try {
-            await api.delete(`/api/fornitori/${deleteId}`);
+            await api.delete(`/fornitori/${deleteId}`);
             toast.success('Fornitore eliminato');
             fetchFornitori();
         } catch (error) {
@@ -175,7 +175,7 @@ export default function Fornitori() {
 
     const handleTestConnection = async (id: number) => {
         try {
-            const response = await api.post(`/api/fornitori/${id}/test-connection`);
+            const response = await api.post(`/fornitori/${id}/test-connection`);
             if (response.data.data.success) {
                 toast.success('Connessione riuscita!');
             } else {
@@ -201,7 +201,7 @@ export default function Fornitori() {
             // Avvia polling per mostrare il progresso
             pollingInterval = setInterval(async () => {
                 try {
-                    const statusRes = await api.get(`/api/fornitori/${id}/import-status`);
+                    const statusRes = await api.get(`/fornitori/${id}/import-status`);
                     const log = statusRes.data.data;
 
                     if (log && log.stato === 'running') {
@@ -221,7 +221,7 @@ export default function Fornitori() {
                 }
             }, 3000);
 
-            const response = await api.post(`/api/fornitori/${id}/import`, null, {
+            const response = await api.post(`/fornitori/${id}/import`, null, {
                 timeout: 900000 // 15 minuti lato client
             });
 
@@ -263,7 +263,7 @@ export default function Fornitori() {
 
         const toastId = toast.loading('Aggiornamento massivo in corso... attendere, non chiudere la pagina.');
         try {
-            const response = await api.post('/api/fornitori/import-all');
+            const response = await api.post('/fornitori/import-all');
             const { results, totalErrors } = response.data.data;
 
             // Formatta messaggio
