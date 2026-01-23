@@ -522,19 +522,26 @@ export const getImportStatus = asyncHandler(async (req: Request, res: Response) 
  */
 export const importListino = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { ImportService } = await import('../services/ImportService');
 
-    // Avviamo l'importazione in background SENZA awaitare
-    // In questo modo restituiamo subito una risposta al client e evitiamo il timeout di Render
-    ImportService.importaListino(parseInt(id)).catch(err => {
-        logger.error(`[BACKGROUND IMPORT ERROR] Fornitore ${id}: ${err.message}`);
-    });
+    try {
+        const { ImportService } = await import('../services/ImportService');
 
-    res.json({
-        success: true,
-        message: 'Importazione avviata in background.',
-        data: { status: 'started' }
-    });
+        // Eseguiamo in background
+        ImportService.importaListino(parseInt(id)).catch(err => {
+            console.error(`[BACKGROUND CRASH] Fornitore ${id}:`, err);
+        });
+
+        return res.json({
+            success: true,
+            message: 'Importazione avviata correttamente in background.'
+        });
+    } catch (criticalError: any) {
+        console.error('CRITICAL DEPLOYMENT ERROR:', criticalError);
+        return res.status(500).json({
+            success: false,
+            error: `Errore di sistema (Build/Service): ${criticalError.message}`
+        });
+    }
 });
 
 /**
