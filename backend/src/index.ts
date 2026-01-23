@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import dotenv from 'dotenv';
+import path from 'path';
 import { rateLimit } from 'express-rate-limit';
 import { logger } from './utils/logger';
 import { SchedulerService } from './services/SchedulerService';
@@ -36,11 +37,13 @@ const PORT = process.env.PORT || 3000;
 // ============================================
 
 // Security headers
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: false, // Disabilitato per facilitare il testing iniziale
+}));
 
 // CORS
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: true, // In produzione andrebbe limitato, ma per ora lo lasciamo aperto
     credentials: true
 }));
 
@@ -54,7 +57,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Rate limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000, // limit each IP to 1000 requests per windowMs
+    max: 1000,
     message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -98,34 +101,23 @@ app.use('/api/marchi', marchiRoutes);
 app.use('/api/categorie', categorieRoutes);
 app.use('/api/settings', settingsRoutes);
 
-// error handler ...
-import path from 'path';
-
-// ... (keep existing imports)
-
-// ...
-
-// API routes
-app.use('/api/auth', authRoutes);
-// ... (other api routes)
-app.use('/api/settings', settingsRoutes);
-
-// Serve static files from the React frontend app
+// Static files (Se presenti)
 const publicPath = path.join(__dirname, '../public');
-app.use(express.static(publicPath));
+if (require('fs').existsSync(publicPath)) {
+    app.use(express.static(publicPath));
+    app.get('*', (req, res) => {
+        if (!req.path.startsWith('/api/')) {
+            res.sendFile(path.join(publicPath, 'index.html'));
+        }
+    });
+}
 
-// API 404 handler (only for /api/ routes that didn't match)
+// API 404 handler
 app.use('/api/*', (req: Request, res: Response) => {
     res.status(404).json({
         error: 'Endpoint API non trovato',
         path: req.path
     });
-});
-
-// The "catchall" handler: for any request that doesn't
-// match one above, send back React's index.html file.
-app.get('*', (req, res) => {
-    res.sendFile(path.join(publicPath, 'index.html'));
 });
 
 // Error handler (deve essere l'ultimo middleware)
@@ -141,7 +133,6 @@ SchedulerService.init();
 app.listen(PORT, () => {
     logger.info(`🚀 Server avviato su porta ${PORT}`);
     logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    logger.info(`🔗 API disponibili su http://localhost:${PORT}/api`);
 });
 
 // Graceful shutdown
