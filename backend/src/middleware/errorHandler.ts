@@ -43,12 +43,10 @@ export const errorHandler = (
 
     // Risposta al client
     res.status(statusCode).json({
+        success: false,
         error: {
             message,
-            ...(process.env.NODE_ENV === 'development' && {
-                stack: err.stack,
-                details: err
-            })
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
         }
     });
 };

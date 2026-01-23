@@ -2,13 +2,14 @@ import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
 
 // Crea istanza Prisma con logging
+// Configurazione ottimizzata per Supabase/Render
 const prisma = new PrismaClient({
-    log: [
-        { level: 'query', emit: 'event' },
-        { level: 'error', emit: 'event' },
-        { level: 'warn', emit: 'event' }
-    ]
+    log: ['error', 'warn'],
+    errorFormat: 'minimal',
 });
+
+// Test connessione immediata
+prisma.$connect().catch(err => logger.error('Database connection failed at startup', err));
 
 // Log query in development
 if (process.env.NODE_ENV === 'development') {
