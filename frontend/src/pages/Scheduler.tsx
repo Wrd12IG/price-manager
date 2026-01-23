@@ -38,7 +38,7 @@ import {
     Delete as DeleteIcon,
     Add as AddIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 interface LogElaborazione {
@@ -80,7 +80,7 @@ export default function Scheduler() {
 
     const fetchStatus = async () => {
         try {
-            const response = await axios.get('/api/scheduler/status');
+            const response = await api.get('/api/scheduler/status');
             setStatus(response.data?.data?.status || "unknown");
             setLogs(response.data?.data?.logs || []);
         } catch (error) {
@@ -92,7 +92,7 @@ export default function Scheduler() {
 
     const fetchSchedules = async () => {
         try {
-            const res = await axios.get('/api/scheduler/schedules');
+            const res = await api.get('/api/scheduler/schedules');
             setSchedules(Array.isArray(res.data.data) ? res.data.data : []);
         } catch (error) {
             console.error(error);
@@ -125,7 +125,7 @@ export default function Scheduler() {
         }
 
         try {
-            await axios.post('/api/scheduler/schedules', { expression: cronExpression });
+            await api.post('/api/scheduler/schedules', { expression: cronExpression });
             toast.success('Schedulazione aggiunta');
             fetchSchedules();
         } catch (error: any) {
@@ -142,7 +142,7 @@ export default function Scheduler() {
         if (!scheduleToDelete) return;
 
         try {
-            await axios.delete('/api/scheduler/schedules', { data: { expression: scheduleToDelete } });
+            await api.delete('/api/scheduler/schedules', { data: { expression: scheduleToDelete } });
             toast.success('Schedulazione rimossa');
             fetchSchedules();
         } catch (error: any) {
@@ -160,7 +160,7 @@ export default function Scheduler() {
         setRunConfirmOpen(false);
         setStarting(true);
         try {
-            await axios.post('/api/scheduler/run');
+            await api.post('/api/scheduler/run');
             toast.success('Workflow avviato in background');
             fetchStatus();
         } catch (error: any) {

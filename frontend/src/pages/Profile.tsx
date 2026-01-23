@@ -15,7 +15,7 @@ import {
     Person as PersonIcon,
     Notifications as NotificationsIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 interface ProfileData {
@@ -41,7 +41,7 @@ export default function Profile() {
 
     const fetchProfile = async () => {
         try {
-            const response = await axios.get('/api/settings/profile');
+            const response = await api.get('/api/settings/profile');
             const { user, settings } = response.data.data;
             setFormData({
                 nome: user.nome || '',
@@ -72,7 +72,7 @@ export default function Profile() {
 
         setSaving(true);
         try {
-            await axios.put('/api/settings/profile', formData);
+            await api.put('/api/settings/profile', formData);
             toast.success('Profilo aggiornato con successo');
         } catch (error: any) {
             console.error('Error updating profile:', error);

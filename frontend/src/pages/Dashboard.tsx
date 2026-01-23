@@ -17,7 +17,7 @@ import {
     CheckCircle,
     Error as ErrorIcon,
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 interface ActivityLog {
@@ -98,7 +98,7 @@ export default function Dashboard() {
 
     const fetchStats = async () => {
         try {
-            const response = await axios.get('/api/dashboard/stats');
+            const response = await api.get('/api/dashboard/stats');
             setStats(response.data?.data || null);
         } catch (error) {
             toast.error('Errore nel caricamento delle statistiche');

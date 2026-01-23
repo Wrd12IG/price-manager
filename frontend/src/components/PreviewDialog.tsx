@@ -17,7 +17,7 @@ import {
     Alert
 } from '@mui/material';
 import { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 
 interface PreviewDialogProps {
     open: boolean;
@@ -51,7 +51,7 @@ export default function PreviewDialog({ open, onClose, fornitoreId, nomeFornitor
         setLoading(true);
         setError(null);
         try {
-            const response = await axios.get(`/api/fornitori/${fornitoreId}/preview?rows=10`);
+            const response = await api.get(`/api/fornitori/${fornitoreId}/preview?rows=10`);
             setData(response.data.data);
         } catch (err: any) {
             console.error(err);

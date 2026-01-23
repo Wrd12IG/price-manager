@@ -27,7 +27,7 @@ import {
     Merge as MergeIcon,
     Refresh as RefreshIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 interface StockPerFornitore {
@@ -76,7 +76,7 @@ export default function MasterFile() {
     const fetchProducts = async () => {
         setLoading(true);
         try {
-            const response = await axios.get('/api/master-file', {
+            const response = await api.get('/api/master-file', {
                 params: {
                     page: page + 1,
                     limit: rowsPerPage,
@@ -115,7 +115,7 @@ export default function MasterFile() {
         const toastId = toast.loading('Consolidamento in corso...');
 
         try {
-            const response = await axios.post('/api/master-file/consolidate');
+            const response = await api.post('/api/master-file/consolidate');
             // Check response structure carefully
             const result = response.data?.data || {};
             const processed = result.processed || 0;

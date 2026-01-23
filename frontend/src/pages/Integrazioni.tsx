@@ -41,7 +41,7 @@ import {
     Memory as MemoryIcon
 } from '@mui/icons-material';
 
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 export default function Integrazioni() {
@@ -141,7 +141,7 @@ export default function Integrazioni() {
 
     const fetchConfig = async () => {
         try {
-            const response = await axios.get('/api/shopify/config');
+            const response = await api.get('/api/shopify/config');
             setConfig({
                 shopUrl: response.data.data.shopUrl,
                 accessToken: '',
@@ -159,7 +159,7 @@ export default function Integrazioni() {
     const handleSavePlaceholder = async () => {
         setSavingPlaceholder(true);
         try {
-            await axios.post('/api/shopify/placeholder', {
+            await api.post('/api/shopify/placeholder', {
                 placeholderImageUrl: config.placeholderImageUrl
             });
             toast.success('Immagine placeholder salvata');
@@ -173,7 +173,7 @@ export default function Integrazioni() {
     const fetchShopifyPreview = async () => {
         setLoadingPreview(true);
         try {
-            const response = await axios.get('/api/shopify/preview', {
+            const response = await api.get('/api/shopify/preview', {
                 params: {
                     page: previewPage + 1,
                     limit: previewRowsPerPage
@@ -195,7 +195,7 @@ export default function Integrazioni() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            await axios.post('/api/shopify/config', {
+            await api.post('/api/shopify/config', {
                 shopUrl: config.shopUrl,
                 accessToken: config.accessToken
             });
@@ -213,7 +213,7 @@ export default function Integrazioni() {
         const toastId = toast.loading('Generazione export in corso...');
 
         try {
-            const response = await axios.post('/api/shopify/generate');
+            const response = await api.post('/api/shopify/generate');
             const { prepared } = response.data.data;
 
             toast.update(toastId, {
@@ -251,7 +251,7 @@ export default function Integrazioni() {
         handleCloseSyncConfirm();
 
         try {
-            const response = await axios.post('/api/shopify/sync');
+            const response = await api.post('/api/shopify/sync');
             const { prepared, success, errors } = response.data.data;
 
             toast.update(toastId, {
@@ -281,7 +281,7 @@ export default function Integrazioni() {
 
     const fetchIcecatConfig = async () => {
         try {
-            const response = await axios.get('/api/icecat/config');
+            const response = await api.get('/api/icecat/config');
             setIcecatConfig({
                 username: response.data.data.username || '',
                 password: '',
@@ -294,7 +294,7 @@ export default function Integrazioni() {
 
     const fetchIcecatProgress = async () => {
         try {
-            const response = await axios.get('/api/icecat/progress');
+            const response = await api.get('/api/icecat/progress');
             setIcecatProgress(response.data.data);
         } catch (error) {
             console.error(error);
@@ -303,7 +303,7 @@ export default function Integrazioni() {
 
     const fetchShopifyProgress = async () => {
         try {
-            const response = await axios.get('/api/shopify/progress');
+            const response = await api.get('/api/shopify/progress');
             setShopifyProgress(response.data.data);
         } catch (error) {
             console.error(error);
@@ -313,7 +313,7 @@ export default function Integrazioni() {
     const fetchEnrichedProducts = async () => {
         setLoadingEnriched(true);
         try {
-            const response = await axios.get('/api/icecat/enriched', {
+            const response = await api.get('/api/icecat/enriched', {
                 params: {
                     page: enrichedPage + 1,
                     limit: enrichedRowsPerPage
@@ -337,7 +337,7 @@ export default function Integrazioni() {
 
     const handleSaveIcecat = async () => {
         try {
-            await axios.post('/api/icecat/config', {
+            await api.post('/api/icecat/config', {
                 username: icecatConfig.username,
                 password: icecatConfig.password
             });
@@ -362,7 +362,7 @@ export default function Integrazioni() {
         handleCloseEnrichConfirm();
 
         try {
-            const response = await axios.post('/api/icecat/enrich');
+            const response = await api.post('/api/icecat/enrich');
             const { processed, enriched } = response.data.data;
 
             toast.update(toastId, {

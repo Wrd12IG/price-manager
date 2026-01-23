@@ -30,7 +30,7 @@ import {
     Delete as DeleteIcon,
     Search as SearchIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 interface Categoria {
@@ -77,7 +77,7 @@ const Categorie: React.FC = () => {
             const params: any = {};
             if (showActiveOnly) params.attivo = 'true';
 
-            const response = await axios.get('/api/categorie', { params });
+            const response = await api.get('/api/categorie', { params });
             setCategorie(response.data?.data || []);
         } catch (error: any) {
             toast.error('Errore nel caricamento delle categorie');
@@ -120,11 +120,11 @@ const Categorie: React.FC = () => {
         try {
             if (editingCategoria) {
                 // Update
-                await axios.put(`/api/categorie/${editingCategoria.id}`, formData);
+                await api.put(`/api/categorie/${editingCategoria.id}`, formData);
                 toast.success('Categoria aggiornata con successo');
             } else {
                 // Create
-                await axios.post('/api/categorie', formData);
+                await api.post('/api/categorie', formData);
                 toast.success('Categoria creata con successo');
             }
 
@@ -155,7 +155,7 @@ const Categorie: React.FC = () => {
         setDeleteDialogOpen(false);
 
         try {
-            await axios.delete(`/api/categorie/${categoriaToDelete.id}`);
+            await api.delete(`/api/categorie/${categoriaToDelete.id}`);
             toast.success('Categoria eliminata con successo');
             fetchCategorie();
         } catch (error: any) {

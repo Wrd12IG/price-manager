@@ -30,7 +30,7 @@ import {
     Delete as DeleteIcon,
     Search as SearchIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 interface Marchio {
@@ -77,7 +77,7 @@ const Marchi: React.FC = () => {
             const params: any = {};
             if (showActiveOnly) params.attivo = 'true';
 
-            const response = await axios.get('/api/marchi', { params });
+            const response = await api.get('/api/marchi', { params });
             setMarchi(response.data?.data || []);
         } catch (error: any) {
             toast.error('Errore nel caricamento dei marchi');
@@ -120,11 +120,11 @@ const Marchi: React.FC = () => {
         try {
             if (editingMarchio) {
                 // Update
-                await axios.put(`/api/marchi/${editingMarchio.id}`, formData);
+                await api.put(`/api/marchi/${editingMarchio.id}`, formData);
                 toast.success('Marchio aggiornato con successo');
             } else {
                 // Create
-                await axios.post('/api/marchi', formData);
+                await api.post('/api/marchi', formData);
                 toast.success('Marchio creato con successo');
             }
 
@@ -155,7 +155,7 @@ const Marchi: React.FC = () => {
         setDeleteDialogOpen(false);
 
         try {
-            await axios.delete(`/api/marchi/${marchioToDelete.id}`);
+            await api.delete(`/api/marchi/${marchioToDelete.id}`);
             toast.success('Marchio eliminato con successo');
             fetchMarchi();
         } catch (error: any) {

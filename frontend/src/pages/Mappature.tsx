@@ -20,7 +20,7 @@ import {
     SelectChangeEvent
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
 
 interface Fornitore {
@@ -50,8 +50,8 @@ export default function Mappature() {
         const init = async () => {
             try {
                 const [resFornitori, resCampi] = await Promise.all([
-                    axios.get('/api/fornitori'),
-                    axios.get('/api/mappature/campi/standard')
+                    api.get('/api/fornitori'),
+                    api.get('/api/mappature/campi/standard')
                 ]);
                 setFornitori(resFornitori.data?.data || []);
                 setCampiStandard(resCampi.data?.data || []);
@@ -75,11 +75,11 @@ export default function Mappature() {
             setLoadingDati(true);
             try {
                 // 1. Carica colonne dal file (usando preview)
-                const resPreview = await axios.get(`/api/fornitori/${selectedFornitoreId}/preview?rows=1`);
+                const resPreview = await api.get(`/api/fornitori/${selectedFornitoreId}/preview?rows=1`);
                 setColonneFile(resPreview.data.data.headers || []);
 
                 // 2. Carica mappatura salvata
-                const resMappatura = await axios.get(`/api/mappature/campi/${selectedFornitoreId}`);
+                const resMappatura = await api.get(`/api/mappature/campi/${selectedFornitoreId}`);
                 setMappatura(resMappatura.data.data || {});
 
             } catch (error) {
@@ -106,7 +106,7 @@ export default function Mappature() {
 
         setLoading(true);
         try {
-            await axios.post(`/api/mappature/campi/${selectedFornitoreId}`, mappatura);
+            await api.post(`/api/mappature/campi/${selectedFornitoreId}`, mappatura);
             toast.success('Mappatura salvata con successo!');
         } catch (error) {
             console.error(error);
