@@ -1,7 +1,5 @@
 import csv from 'csv-parser';
-import * as XLSX from 'xlsx';
 import { Readable } from 'stream';
-import { AppError } from '../middleware/errorHandler';
 
 export interface ParseResult {
     headers: string[];
@@ -13,7 +11,7 @@ export interface ParseOptions {
     format: string;
     stream?: Readable;
     buffer?: Buffer;
-    encoding?: string; // Re-added encoding
+    encoding?: string;
     csvSeparator?: string;
     quote?: string;
     previewRows?: number;
@@ -22,6 +20,13 @@ export interface ParseOptions {
 
 export class FileParserService {
     static async parseFile(options: ParseOptions): Promise<ParseResult> {
+        if (options.format.toLowerCase().includes('excel') || options.format.toLowerCase().includes('xls')) {
+            return await this.parseExcel(options);
+        }
+        return await this.parseCSV(options);
+    }
+
+    private static async parseCSV(options: ParseOptions): Promise<ParseResult> {
         return new Promise((resolve, reject) => {
             const results: any[] = [];
             let headers: string[] = [];
@@ -52,5 +57,28 @@ export class FileParserService {
                 .on('end', () => resolve({ headers, rows: results, totalRows: rowCount }))
                 .on('error', reject);
         });
+    }
+
+    private static async parseExcel(options: ParseOptions): Promise<ParseResult> {
+        const XLSX = await import('xlsx');
+        const workbook = options.buffer ? XLSX.read(options.buffer, { type: 'buffer' }) : null;
+        if (!workbook) throw new Error('Input Excel non valido');
+
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+        const results: any[] = [];
+        for (const row of (jsonData as any[])) {
+            if (options.onRow) await options.onRow(row);
+            else results.push(row);
+        }
+
+        const headers = jsonData.length > 0 ? Object.keys(jsonData[0] as object) : [];
+
+        return {
+            headers,
+            rows: options.previewRows ? results.slice(0, options.previewRows) : results,
+            totalRows: jsonData.length
+        };
     }
 }

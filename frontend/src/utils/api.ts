@@ -1,10 +1,10 @@
 import axios from 'axios';
 
 const api = axios.create({
-    // Usiamo path relativo /api per sfruttare il proxy di Vercel (vercel.json)
-    // Questo risolve i problemi di routing tra frontend e backend
-    baseURL: '/api',
-    timeout: 60000,
+    // Torniamo all'indirizzo assoluto di Render per evitare il 405 di Vercel
+    // Ma usiamo un timeout più lungo per dare tempo a Render di rispondere
+    baseURL: 'https://price-manager-5ait.onrender.com/api',
+    timeout: 120000,
     headers: {
         'Content-Type': 'application/json'
     }
