@@ -6,14 +6,8 @@ import axios from 'axios';
 import { decrypt } from '../utils/encryption';
 
 export class ImportService {
-    private static normalizeEAN(ean: string | null): string | null {
-        if (!ean) return null;
-        const cleaned = ean.trim();
-        return (cleaned.length > 0 && cleaned.length <= 14 && /^\d+$/.test(cleaned)) ? cleaned : null;
-    }
-
     static async importaListino(fornitoreId: number): Promise<any> {
-        logger.info(`=== AVVIO IMPORTAZIONE SICURA [ID: ${fornitoreId}] ===`);
+        logger.info(`🚀 AVVIO IMPORTAZIONE ULTRA-STABILE [Fornitore: ${fornitoreId}]`);
 
         const fornitore = await prisma.fornitore.findUnique({
             where: { id: fornitoreId },
@@ -21,7 +15,7 @@ export class ImportService {
         });
 
         if (!fornitore) throw new AppError('Fornitore non trovato', 404);
-        if (fornitore.mappatureCampi.length === 0) throw new AppError('Mappatura campi mancante. Configurala in "Mappature".', 400);
+        if (fornitore.mappatureCampi.length === 0) throw new AppError('Mappatura mancante. Configurala in "Mappature".', 400);
 
         const map = fornitore.mappatureCampi.reduce((acc: any, m) => {
             acc[m.campoStandard] = m.campoOriginale;
@@ -29,64 +23,69 @@ export class ImportService {
         }, {});
 
         const log = await prisma.logElaborazione.create({
-            data: { faseProcesso: `IMPORT_${fornitore.nomeFornitore}`, stato: 'running' }
+            data: { faseProcesso: `IMPORT_${fornitore.nomeFornitore}`, stato: 'running', prodottiProcessati: 0 }
         });
 
         try {
-            // USIAMO ARRAYBUFFER (LO STESSO DELLA LENTE CHE FUNZIONA)
-            const axiosConfig: any = { responseType: 'arraybuffer', timeout: 300000 };
+            // USIAMO 'stream' PER NON CARICARE IL FILE IN RAM
+            const axiosConfig: any = { responseType: 'stream', timeout: 900000 };
             if (fornitore.tipoAccesso === 'http_auth' && fornitore.username && fornitore.passwordEncrypted) {
                 const password = decrypt(fornitore.passwordEncrypted);
                 axiosConfig.auth = { username: fornitore.username, password };
             }
 
-            logger.info(`Scaricamento file...`);
+            logger.info(`Download in corso: ${fornitore.urlListino}`);
             const response = await axios.get(fornitore.urlListino!, axiosConfig);
-            const buffer = Buffer.from(response.data);
 
-            const parseResult = await FileParserService.parseFile({
-                format: fornitore.formatoFile,
-                buffer: buffer,
-                csvSeparator: fornitore.separatoreCSV,
-                quote: fornitore.nomeFornitore.toLowerCase().includes('brevi') ? '' : '"'
-            });
-
-            logger.info(`File letto con successo: ${parseResult.totalRows} righe.`);
-
-            // Pulizia DB
+            // PuliAMO listino precedente
             await prisma.listinoRaw.deleteMany({ where: { fornitoreId } });
 
+            let processed = 0;
             let success = 0;
-            const batchSize = 50; // Batch piccolissimi per Supabase
+            const batch: any[] = [];
 
-            for (let i = 0; i < parseResult.rows.length; i += batchSize) {
-                const chunk = parseResult.rows.slice(i, i + batchSize);
-                const toInsert = chunk.map(row => {
+            // Analizziamo in streaming
+            await FileParserService.parseFile({
+                format: fornitore.formatoFile,
+                stream: response.data,
+                csvSeparator: fornitore.separatoreCSV,
+                onRow: async (row) => {
+                    processed++;
                     const sku = row[map['sku']] || row[map['ean']];
-                    const ean = this.normalizeEAN(row[map['ean']]?.toString());
                     const prezzo = parseFloat(row[map['prezzo']]?.toString().replace(',', '.') || '0');
 
-                    if (!sku && !ean) return null;
+                    if (sku) {
+                        batch.push({
+                            fornitoreId,
+                            skuFornitore: sku.toString().trim(),
+                            eanGtin: row[map['ean']]?.toString().trim() || null,
+                            prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
+                            quantitaDisponibile: parseInt(row[map['quantita']] || '0'),
+                            descrizioneOriginale: row[map['nome']]?.toString() || null,
+                            altriCampiJson: JSON.stringify(row)
+                        });
 
-                    return {
-                        fornitoreId,
-                        skuFornitore: (sku || ean).toString().trim(),
-                        eanGtin: ean,
-                        descrizioneOriginale: row[map['nome']]?.toString() || null,
-                        prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
-                        quantitaDisponibile: parseInt(row[map['quantita']] || '0'),
-                        altriCampiJson: JSON.stringify(row)
-                    };
-                }).filter(Boolean);
+                        if (batch.length >= 100) {
+                            await prisma.listinoRaw.createMany({ data: [...batch] });
+                            success += batch.length;
+                            batch.length = 0;
 
-                if (toInsert.length > 0) {
-                    await prisma.listinoRaw.createMany({ data: toInsert as any });
-                    success += toInsert.length;
+                            // Ogni 1000 righe aggiorniamo il log nel database (per il frontend)
+                            if (processed % 1000 === 0) {
+                                await prisma.logElaborazione.update({
+                                    where: { id: log.id },
+                                    data: { prodottiProcessati: success }
+                                }).catch(() => { });
+                            }
+                        }
+                    }
                 }
+            });
 
-                if (i % 1000 === 0) {
-                    logger.info(`Salvataggio: ${i}/${parseResult.totalRows}...`);
-                }
+            // Salviamo l'ultimo pezzo
+            if (batch.length > 0) {
+                await prisma.listinoRaw.createMany({ data: batch });
+                success += batch.length;
             }
 
             await prisma.logElaborazione.update({
@@ -94,42 +93,23 @@ export class ImportService {
                 data: { stato: 'success', prodottiProcessati: success }
             });
 
-            return { total: parseResult.totalRows, inserted: success };
+            return { total: processed, inserted: success };
 
-        } catch (e: any) {
-            logger.error(`CRASH IMPORTAZIONE: ${e.message}`);
+        } catch (error: any) {
+            logger.error(`CRASH FINALE: ${error.message}`);
             await prisma.logElaborazione.update({
                 where: { id: log.id },
-                data: { stato: 'error', dettagliJson: JSON.stringify({ error: e.message }) }
+                data: { stato: 'error', dettagliJson: JSON.stringify({ error: error.message }) }
             }).catch(() => { });
-
-            // Messaggio che vedrai nella box rossa
-            throw new AppError(`Fallimento Database/File: ${e.message}`, 500);
+            throw new AppError(`Errore Fatale: ${error.message}`, 500);
         }
     }
 
-    static async importAllListini(): Promise<{ results: any[]; totalErrors: number }> {
-        logger.info('🚀 Avvio importazione massiva di tutti i listini...');
-
-        const fornitori = await prisma.fornitore.findMany({
-            where: { attivo: true }
-        });
-
-        const results = [];
-        let totalErrors = 0;
-
-        for (const fornitore of fornitori) {
-            try {
-                logger.info(`Processing ${fornitore.nomeFornitore}...`);
-                const result = await this.importaListino(fornitore.id);
-                results.push({ fornitore: fornitore.nomeFornitore, success: true, stats: result });
-            } catch (err: any) {
-                logger.error(`Errore import fornitore ${fornitore.nomeFornitore}: ${err.message}`);
-                results.push({ fornitore: fornitore.nomeFornitore, success: false, error: err.message });
-                totalErrors++;
-            }
+    static async importAllListini(): Promise<any> {
+        const fornitori = await prisma.fornitore.findMany({ where: { attivo: true } });
+        for (const f of fornitori) {
+            await this.importaListino(f.id).catch(e => logger.error(`Error in mass import for ${f.nomeFornitore}: ${e.message}`));
         }
-
-        return { results, totalErrors };
+        return { success: true };
     }
 }

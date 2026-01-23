@@ -11,7 +11,6 @@ export interface ParseOptions {
     format: string;
     stream?: Readable;
     buffer?: Buffer;
-    encoding?: string;
     csvSeparator?: string;
     quote?: string;
     previewRows?: number;
@@ -20,13 +19,21 @@ export interface ParseOptions {
 
 export class FileParserService {
     static async parseFile(options: ParseOptions): Promise<ParseResult> {
+        // Se è Excel usiamo XLSX (che purtroppo richiede memoria, ma per CSV/XML usiamo streaming puro)
         if (options.format.toLowerCase().includes('excel') || options.format.toLowerCase().includes('xls')) {
-            return await this.parseExcel(options);
+            const XLSX = await import('xlsx');
+            const workbook = options.buffer ? XLSX.read(options.buffer, { type: 'buffer' }) : null;
+            if (!workbook) throw new Error('Dati Excel non validi');
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(worksheet);
+            const headers = data.length > 0 ? Object.keys(data[0] as object) : [];
+            for (const row of (data as any[])) {
+                if (options.onRow) await options.onRow(row);
+            }
+            return { headers, rows: options.onRow ? [] : data, totalRows: data.length };
         }
-        return await this.parseCSV(options);
-    }
 
-    private static async parseCSV(options: ParseOptions): Promise<ParseResult> {
+        // CSV/TSV/TXT STREAMING (RAM ZERO)
         return new Promise((resolve, reject) => {
             const results: any[] = [];
             let headers: string[] = [];
@@ -34,7 +41,7 @@ export class FileParserService {
             const limit = options.previewRows || Infinity;
 
             const source = options.stream || (options.buffer ? Readable.from(options.buffer) : null);
-            if (!source) return reject(new Error('Nessuna sorgente dati'));
+            if (!source) return reject(new Error('Nessuna sorgente dati fornita'));
 
             const parser = csv({
                 separator: options.csvSeparator || ';',
@@ -57,28 +64,5 @@ export class FileParserService {
                 .on('end', () => resolve({ headers, rows: results, totalRows: rowCount }))
                 .on('error', reject);
         });
-    }
-
-    private static async parseExcel(options: ParseOptions): Promise<ParseResult> {
-        const XLSX = await import('xlsx');
-        const workbook = options.buffer ? XLSX.read(options.buffer, { type: 'buffer' }) : null;
-        if (!workbook) throw new Error('Input Excel non valido');
-
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-        const results: any[] = [];
-        for (const row of (jsonData as any[])) {
-            if (options.onRow) await options.onRow(row);
-            else results.push(row);
-        }
-
-        const headers = jsonData.length > 0 ? Object.keys(jsonData[0] as object) : [];
-
-        return {
-            headers,
-            rows: options.previewRows ? results.slice(0, options.previewRows) : results,
-            totalRows: jsonData.length
-        };
     }
 }
