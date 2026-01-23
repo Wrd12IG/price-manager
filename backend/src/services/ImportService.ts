@@ -57,17 +57,24 @@ export class ImportService {
                 csvSeparator: fornitore.separatoreCSV,
                 onRow: async (row) => {
                     count++;
-                    const sku = row[map['sku']] || row[map['ean']];
+
+                    const skuRaw = row[map['sku']] || row[map['ean']];
+                    const sku = skuRaw ? skuRaw.toString().trim() : null;
                     const ean = this.normalizeEAN(row[map['ean']]?.toString());
-                    const prezzo = parseFloat(row[map['prezzo']]?.toString().replace(',', '.') || '0');
+
+                    const prezzoRaw = (row[map['prezzo']] || '0').toString().replace(',', '.');
+                    const prezzo = parseFloat(prezzoRaw);
+
+                    const quantitaRaw = (row[map['quantita']] || '0').toString();
+                    const quantita = parseInt(quantitaRaw);
 
                     if (sku || ean) {
                         batch.push({
                             fornitoreId,
-                            skuFornitore: (sku || ean).toString().trim(),
+                            skuFornitore: (sku || ean || 'MISSING_SKU').toString(),
                             eanGtin: ean,
                             prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
-                            quantitaDisponibile: parseInt(row[map['quantita']] || '0'),
+                            quantitaDisponibile: isNaN(quantita) ? 0 : quantita,
                             descrizioneOriginale: row[map['nome']]?.toString() || null,
                             altriCampiJson: JSON.stringify(row)
                         });
