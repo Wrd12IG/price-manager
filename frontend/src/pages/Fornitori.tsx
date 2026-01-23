@@ -89,7 +89,7 @@ export default function Fornitori() {
     const fetchFornitori = async () => {
         try {
             const response = await axios.get('/api/fornitori');
-            setFornitori(response.data.data);
+            setFornitori(response.data?.data || []);
         } catch (error) {
             toast.error('Errore nel caricamento dei fornitori');
             console.error(error);

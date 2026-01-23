@@ -78,7 +78,7 @@ const Categorie: React.FC = () => {
             if (showActiveOnly) params.attivo = 'true';
 
             const response = await axios.get('/api/categorie', { params });
-            setCategorie(response.data.data);
+            setCategorie(response.data?.data || []);
         } catch (error: any) {
             toast.error('Errore nel caricamento delle categorie');
             console.error(error);

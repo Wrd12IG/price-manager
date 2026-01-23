@@ -78,7 +78,7 @@ const Marchi: React.FC = () => {
             if (showActiveOnly) params.attivo = 'true';
 
             const response = await axios.get('/api/marchi', { params });
-            setMarchi(response.data.data);
+            setMarchi(response.data?.data || []);
         } catch (error: any) {
             toast.error('Errore nel caricamento dei marchi');
             console.error(error);
