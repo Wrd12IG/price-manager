@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create an axios instance that will be used throughout the frontend
 const api = axios.create({
-    baseURL: (import.meta.env.VITE_API_URL as string) || '/api',
+    baseURL: ((import.meta as any).env.VITE_API_URL as string) || '/api',
     timeout: 30000, // Aumentato a 30s per il cloud
 });
 
