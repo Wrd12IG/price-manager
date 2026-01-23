@@ -4,6 +4,7 @@ import { AppError, asyncHandler } from '../middleware/errorHandler';
 import { encrypt, decrypt } from '../utils/encryption';
 import { logger } from '../utils/logger';
 import axios from 'axios';
+import { ImportService } from '../services/ImportService';
 
 /**
  * GET /api/fornitori
@@ -522,52 +523,47 @@ export const getImportStatus = asyncHandler(async (req: Request, res: Response) 
  */
 export const importListino = asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    const fornitoreId = parseInt(id);
 
-    try {
-        const { ImportService } = await import('../services/ImportService');
+    logger.info(`[CONTROLLER] Received import request for supplier ${fornitoreId}`);
 
-        // Eseguiamo in background
-        ImportService.importaListino(parseInt(id)).catch(err => {
-            console.error(`[BACKGROUND CRASH] Fornitore ${id}:`, err);
-        });
+    // Check if supplier exists first (fast)
+    const fornitore = await prisma.fornitore.findUnique({ where: { id: fornitoreId } });
+    if (!fornitore) throw new AppError('Fornitore non trovato', 404);
 
-        return res.json({
-            success: true,
-            message: 'Importazione avviata correttamente in background.'
+    // Start background task
+    setImmediate(() => {
+        ImportService.importaListino(fornitoreId).catch(err => {
+            logger.error(`[BACKGROUND CRASH] Fornitore ${fornitoreId}: ${err.message}`);
         });
-    } catch (criticalError: any) {
-        console.error('CRITICAL DEPLOYMENT ERROR:', criticalError);
-        return res.status(500).json({
-            success: false,
-            error: `Errore di sistema (Build/Service): ${criticalError.message}`
-        });
-    }
+    });
+
+    // Immediate success response
+    return res.json({
+        success: true,
+        message: 'Importazione avviata in background. Segui il progresso dal log.',
+        data: { total: 0, inserted: 0, errors: 0, status: 'started' } // Fake stats to keep frontend happy
+    });
 });
+
 
 /**
  * POST /api/fornitori/import-all
  * Avvia importazione massiva di tutti i fornitori attivi
  */
 export const importAllListini = asyncHandler(async (req: Request, res: Response) => {
-    // Import dinamico del servizio
-    const { ImportService } = await import('../services/ImportService');
+    logger.info('Avvio importazione massiva via API');
 
-    try {
-        logger.info('Avvio importazione massiva via API');
-        const result = await ImportService.importAllListini();
+    // Non attendiamo (no await)
+    ImportService.importAllListini().catch(err => {
+        logger.error('Errore durante importazione massiva background:', err);
+    });
 
-        res.json({
-            success: true,
-            message: 'Importazione massiva completata',
-            data: result
-        });
-    } catch (error: any) {
-        logger.error('Errore importazione massiva:', error);
-        throw new AppError(
-            `Errore durante importazione massiva: ${error.message}`,
-            500
-        );
-    }
+    res.json({
+        success: true,
+        message: 'Importazione massiva avviata in background.',
+        data: { status: 'started' }
+    });
 });
 
 

@@ -19,7 +19,7 @@
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.7.0",
     "@types/node": "^20.19.25",
-    "axios": "^1.13.2",
+    "axios": "^1.7.0",
     "basic-ftp": "^5.0.5",
     "bcryptjs": "^2.4.3",
     "bull": "^4.12.0",
