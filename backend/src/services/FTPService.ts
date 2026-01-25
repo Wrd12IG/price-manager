@@ -9,7 +9,7 @@ export class FTPService {
     private static async smartAccess(client: ftp.Client, config: any) {
         const modes = [
             { secure: false, label: 'Normale (Porta 21)' },
-            { secure: true, label: 'Sicuro (Eplicito TLS)' },
+            { secure: true, label: 'Sicuro (Esplicito TLS)' },
             { secure: 'implicit', label: 'Sicuro (Implicito TLS)' }
         ];
 
@@ -19,10 +19,12 @@ export class FTPService {
             try {
                 logger.info(`FTP Attempt: Provando modalità ${mode.label} su ${config.host}:${config.port}...`);
 
-                // Reset client connection state if possible
-                if (client.closed === false) {
+                if (!client.closed) {
                     client.close();
                 }
+
+                // Impostiamo il timeout per evitare fallimenti prematuri
+                (client.ftp as any).timeout = 60000;
 
                 await client.access({
                     host: config.host,
@@ -33,14 +35,25 @@ export class FTPService {
                 });
 
                 logger.info(`✅ FTP Connection Success: Modalità ${mode.label}`);
-                return; // Connesso!
+                return;
             } catch (err: any) {
                 lastError = err;
                 logger.warn(`❌ FTP Attempt Fallito (${mode.label}): ${err.message}`);
+
+                // Se l'errore indica che il server non parla SSL (wrong version number), 
+                // è inutile provare altre modalità sicure
+                if (err.message.includes('wrong version number') || err.message.includes('SSL routines')) {
+                    if (mode.secure === false) {
+                        // Se fallisce il plain con errore SSL, c'è qualcosa di molto strano, ma continuiamo
+                    } else {
+                        logger.warn(`   Server non sembra supportare TLS, salto ulteriori tentativi sicuri.`);
+                        break;
+                    }
+                }
             }
         }
 
-        throw new Error(`Impossibile connettersi al server FTP ${config.host}:${config.port} dopo vari tentativi. Errore finale: ${lastError?.message}`);
+        throw new Error(`Impossibile connettersi al server FTP ${config.host}:${config.port}. ${lastError?.message}`);
     }
 
     /**

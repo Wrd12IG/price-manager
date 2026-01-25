@@ -117,8 +117,8 @@ model RegolaMarkup {
   updatedAt          DateTime     @updatedAt
   masterFiles        MasterFile[]
   categoria          Categoria?   @relation(fields: [categoriaId], references: [id])
-  marchio            Marchio?     @relation(fields: [marchioId], references: [id])
   fornitore          Fornitore?   @relation(fields: [fornitoreId], references: [id])
+  marchio            Marchio?     @relation(fields: [marchioId], references: [id])
 
   @@index([tipoRegola])
   @@index([marchioId])
@@ -163,10 +163,10 @@ model MasterFile {
   updatedAt               DateTime       @updatedAt
   regolaMarkupId          Int?
   datiIcecat              DatiIcecat?
-  regolaMarkupApplicata   RegolaMarkup?  @relation(fields: [regolaMarkupId], references: [id])
   categoria               Categoria?     @relation(fields: [categoriaId], references: [id])
-  marchio                 Marchio?       @relation(fields: [marchioId], references: [id])
   fornitoreSelezionato    Fornitore      @relation(fields: [fornitoreSelezionatoId], references: [id])
+  marchio                 Marchio?       @relation(fields: [marchioId], references: [id])
+  regolaMarkupApplicata   RegolaMarkup?  @relation(fields: [regolaMarkupId], references: [id])
   outputShopify           OutputShopify?
 
   @@index([eanGtin])

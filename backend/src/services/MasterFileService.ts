@@ -33,13 +33,10 @@ export class MasterFileService {
             const rawProducts = await prisma.listinoRaw.findMany({
                 include: {
                     fornitore: true
-                },
-                orderBy: {
-                    prezzoAcquisto: 'asc' // Ordina per prezzo per facilitare selezione best price
                 }
             });
 
-            logger.info(`📦 Trovati ${rawProducts.length} prodotti raw da elaborare`);
+            logger.info(`📦 Trovati ${rawProducts.length} record raw da elaborare`);
 
             if (rawProducts.length === 0) {
                 logger.warn('⚠️ Nessun prodotto trovato in ListinoRaw');
@@ -51,9 +48,44 @@ export class MasterFileService {
                 };
             }
 
-            // 2. Applica filtri prodotti
+            // --- NUOVO: Aggregazione per SKU dello stesso fornitore ---
+            // Utile per fornitori come Runner che separano prezzi e descrizioni in file diversi
+            logger.info('🔄 Aggregazione record per SKU fornitore...');
+            const skuMergedMap = new Map<string, any>();
+
+            for (const raw of rawProducts) {
+                const key = `${raw.fornitoreId}_${raw.skuFornitore}`;
+                const existing = skuMergedMap.get(key);
+
+                if (!existing) {
+                    skuMergedMap.set(key, { ...raw });
+                } else {
+                    // Unisci i campi mancanti
+                    if (!existing.eanGtin && raw.eanGtin) existing.eanGtin = raw.eanGtin;
+                    if (!existing.descrizioneOriginale && raw.descrizioneOriginale) existing.descrizioneOriginale = raw.descrizioneOriginale;
+                    if (!existing.marca && raw.marca) existing.marca = raw.marca;
+                    if (!existing.categoriaFornitore && raw.categoriaFornitore) existing.categoriaFornitore = raw.categoriaFornitore;
+                    if ((existing.prezzoAcquisto === 0 || isNaN(existing.prezzoAcquisto)) && raw.prezzoAcquisto > 0) {
+                        existing.prezzoAcquisto = raw.prezzoAcquisto;
+                    }
+                    if (existing.quantitaDisponibile === 0 && raw.quantitaDisponibile > 0) {
+                        existing.quantitaDisponibile = raw.quantitaDisponibile;
+                    }
+                    // Unisci altri campi JSON
+                    try {
+                        const existingJson = JSON.parse(existing.altriCampiJson || '{}');
+                        const newJson = JSON.parse(raw.altriCampiJson || '{}');
+                        existing.altriCampiJson = JSON.stringify({ ...existingJson, ...newJson });
+                    } catch (e) { }
+                }
+            }
+
+            const mergedProducts = Array.from(skuMergedMap.values());
+            logger.info(`✅ Prodotti dopo aggregazione SKU: ${mergedProducts.length}`);
+
+            // 2. Applica filtri prodotti sui record uniti
             const { includedProducts, excludedProducts } = await this.applyProductFilters(
-                rawProducts,
+                mergedProducts,
                 filterService
             );
 

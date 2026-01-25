@@ -1,26 +1,25 @@
 import axios from 'axios';
 
 const api = axios.create({
-    // Torniamo all'indirizzo assoluto di Render per evitare il 405 di Vercel
-    // Ma usiamo un timeout più lungo per dare tempo a Render di rispondere
-    baseURL: 'https://price-manager-5ait.onrender.com/api',
-    timeout: 120000,
+    // Backend su VPS Aruba (Italia) - sempre attivo, no cold start
+    baseURL: 'http://5.249.149.97/api',
+    timeout: 60000,
     headers: {
         'Content-Type': 'application/json'
     }
 });
 
-// Gestione errori e retry (utile per il "risveglio" di Render)
+// Gestione errori
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
         const { config, response } = error;
 
-        // Se il server sta dormendo (502/503/504) o troppe richieste (429)
+        // Retry automatico per errori temporanei (429, 502, 503, 504)
         if ((response?.status === 429 || response?.status >= 502) && !config?.__retry) {
             config.__retry = true;
-            console.log('Server in stand-by o occupato, riprovo tra 3 secondi...');
-            await new Promise((resolve) => setTimeout(resolve, 3000));
+            console.log('Errore temporaneo, riprovo tra 2 secondi...');
+            await new Promise((resolve) => setTimeout(resolve, 2000));
             return api(config);
         }
         return Promise.reject(error);

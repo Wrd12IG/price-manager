@@ -55,39 +55,58 @@ export class ImportService {
             if (isFTP) {
                 // --- LOGICA FTP ---
                 const password = fornitore.passwordEncrypted ? decrypt(fornitore.passwordEncrypted) : '';
-                const files = await FTPService.listFiles({
-                    host: fornitore.ftpHost!,
-                    port: fornitore.ftpPort || 21,
-                    user: fornitore.username || 'anonymous',
-                    password,
-                    directory: fornitore.ftpDirectory || '/'
-                });
+                const baseDir = fornitore.ftpDirectory || '/';
+                const directories = baseDir.split(/[;,]/).map(d => d.trim()).filter(d => d.length > 0);
 
-                const validFiles = files.filter(f => f.isFile && (f.name.endsWith('.csv') || f.name.endsWith('.txt') || f.name.endsWith('.zip')));
-                logger.info(`[FTP] Trovati ${validFiles.length} file validi per ${fornitore.nomeFornitore}`);
+                if (directories.length === 0) directories.push('/');
 
-                for (const file of validFiles) {
-                    const stream = new PassThrough();
-
-                    // Avvolgiamo il download in una promise per gestire il flusso
-                    const downloadPromise = FTPService.downloadToStream({
+                for (const dir of directories) {
+                    logger.info(`[FTP] Esploro directory: ${dir}`);
+                    const files = await FTPService.listFiles({
                         host: fornitore.ftpHost!,
                         port: fornitore.ftpPort || 21,
                         user: fornitore.username || 'anonymous',
                         password,
-                        directory: fornitore.ftpDirectory || '/',
-                        filename: file.name
-                    }, stream);
-
-                    await this.processStream(stream, fornitore, map, (count) => {
-                        totalCount += count;
-                        prisma.logElaborazione.update({
-                            where: { id: log.id },
-                            data: { prodottiProcessati: totalCount }
-                        }).catch(() => { });
+                        directory: dir
                     });
 
-                    await downloadPromise;
+                    const validFiles = files.filter(f => f.isFile && (
+                        f.name.endsWith('.csv') ||
+                        f.name.endsWith('.txt') ||
+                        f.name.endsWith('.zip') ||
+                        /^[A-Z]\d{6}/.test(f.name) // Supporta file come C200835 senza estensione
+                    ));
+
+                    logger.info(`[FTP] Trovati ${validFiles.length} file validi in ${dir}`);
+
+                    for (const file of validFiles) {
+                        try {
+                            logger.info(`[FTP] Scarico file: ${file.name}`);
+                            const stream = new PassThrough();
+                            const downloadPromise = FTPService.downloadToStream({
+                                host: fornitore.ftpHost!,
+                                port: fornitore.ftpPort || 21,
+                                user: fornitore.username || 'anonymous',
+                                password,
+                                directory: dir,
+                                filename: file.name
+                            }, stream);
+
+                            await this.processStream(stream, fornitore, map, (count) => {
+                                totalCount += count;
+                                prisma.logElaborazione.update({
+                                    where: { id: log.id },
+                                    data: { prodottiProcessati: totalCount }
+                                }).catch(() => { });
+                            });
+
+                            await downloadPromise;
+                            logger.info(`[FTP] ✅ File ${file.name} completato`);
+                        } catch (fileErr: any) {
+                            logger.warn(`[FTP] ⚠️ Errore file ${file.name}: ${fileErr.message} - Continuo con i prossimi file`);
+                            // Continua con il prossimo file invece di interrompere tutto
+                        }
+                    }
                 }
             } else {
                 // --- LOGICA HTTP ---
@@ -154,7 +173,7 @@ export class ImportService {
             onRow: async (row) => {
                 count++;
 
-                const skuRaw = row[map['sku']] || row[map['ean']];
+                const skuRaw = row[map['sku']] || row[map['ean']] || row['codice'] || row['Codice'] || row['SKU'] || row['sku'];
                 const sku = skuRaw ? skuRaw.toString().trim() : null;
                 const ean = this.normalizeEAN(row[map['ean']]?.toString());
 
@@ -172,6 +191,8 @@ export class ImportService {
                         prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
                         quantitaDisponibile: isNaN(quantita) ? 0 : quantita,
                         descrizioneOriginale: row[map['nome']]?.toString() || null,
+                        marca: row[map['marca']]?.toString() || null,
+                        categoriaFornitore: row[map['categoria']]?.toString() || null,
                         altriCampiJson: JSON.stringify(row)
                     });
 

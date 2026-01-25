@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>it.wrdigital.pricemanager.workflow</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd /Users/wrdigital/.gemini/antigravity/scratch/ecommerce-price-manager &amp;&amp; ./run-daily-workflow.sh >> /tmp/pricemanager-cron.log 2>&amp;1</string>
+    </array>
+    
+    <!-- Esegui ogni giorno alle 03:00 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    
+    <key>StandardOutPath</key>
+    <string>/tmp/pricemanager-stdout.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/tmp/pricemanager-stderr.log</string>
+    
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <!-- Evita esecuzioni multiple -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+</dict>
+</plist>
