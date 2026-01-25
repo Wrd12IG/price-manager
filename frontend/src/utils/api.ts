@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 const api = axios.create({
-    // Backend su VPS Aruba (Italia) - sempre attivo, no cold start
-    baseURL: 'http://5.249.149.97/api',
+    // Backend su VPS Aruba (Italia) - Sempre attivo e sicuro tramite HTTPS
+    baseURL: 'https://pricemanager.wrdigital.it/api',
     timeout: 60000,
     headers: {
         'Content-Type': 'application/json'
