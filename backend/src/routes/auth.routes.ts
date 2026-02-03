@@ -1,13 +1,32 @@
 import { Router } from 'express';
+import {
+    login,
+    register,
+    refreshToken,
+    logout,
+    logoutAll,
+    forgotPassword,
+    resetPassword,
+    getCurrentUser
+} from '../controllers/auth.controller';
+import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
-router.post('/login', (req, res) => {
-    res.json({ success: true, token: 'demo-token', message: 'Da implementare' });
-});
+// Autenticazione base
+router.post('/login', login);
+router.post('/register', register);
 
-router.post('/register', (req, res) => {
-    res.json({ success: true, message: 'Da implementare' });
-});
+// Gestione token
+router.post('/refresh', refreshToken);
+router.post('/logout', logout);
+router.post('/logout-all', authMiddleware, logoutAll);
+
+// Password reset
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
+
+// Info utente
+router.get('/me', authMiddleware, getCurrentUser);
 
 export default router;

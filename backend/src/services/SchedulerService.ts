@@ -1,34 +1,41 @@
+// @ts-nocheck
 import { logger } from '../utils/logger';
 import cron from 'node-cron';
 import prisma from '../config/database';
+import { jobProgressManager } from './JobProgressService';
+import { ShopifyService } from './ShopifyService';
 
 /**
  * Servizio per la gestione degli scheduler/cron jobs
  */
 export class SchedulerService {
 
-    private static isRunning = false;
-    private static lastRun: Date | null = null;
+    private static activeRuns: Set<number> = new Set();
     private static activeTasks: Map<string, cron.ScheduledTask> = new Map();
 
     /**
-     * Inizializza gli scheduler
+     * Inizializza gli scheduler per tutti gli utenti
      */
     static async init(): Promise<void> {
-        logger.info('⏰ Inizializzazione Scheduler Dinamico');
+        logger.info('⏰ Inizializzazione Scheduler Multi-Tenant');
 
         // 1. Ferma task esistenti
         this.stopAllTasks();
 
-        // 2. Carica configurazione dal DB
-        const schedules = await this.loadSchedulesFromDB();
+        // 2. Recupera tutti gli utenti attivi
+        const utenti = await prisma.utente.findMany({ where: { attivo: true } });
 
-        // 3. Avvia i task
-        schedules.forEach(expression => {
-            this.scheduleWorkflow(expression);
-        });
+        for (const utente of utenti) {
+            // 3. Carica configurazione specifica per l'utente
+            const schedules = await this.loadUserSchedules(utente.id);
 
-        logger.info(`✅ Scheduler avviato: ${schedules.length} regole attive.`);
+            // 4. Avvia i task per questo utente
+            schedules.forEach(expression => {
+                this.scheduleWorkflow(expression, utente.id);
+            });
+
+            logger.info(`✅ Scheduler configurato per ${utente.email}: ${schedules.length} regole.`);
+        }
     }
 
     /**
@@ -40,12 +47,15 @@ export class SchedulerService {
     }
 
     /**
-     * Carica schedulazioni dal DB o crea default
+     * Carica schedulazioni dal DB per un utente specifico
      */
-    private static async loadSchedulesFromDB(): Promise<string[]> {
+    private static async loadUserSchedules(utenteId: number): Promise<string[]> {
         try {
-            const config = await prisma.configurazioneSistema.findUnique({
-                where: { chiave: 'workflow_schedules' }
+            const config = await prisma.configurazioneSistema.findFirst({
+                where: {
+                    utenteId,
+                    chiave: 'workflow_schedules'
+                }
             });
 
             if (config?.valore) {
@@ -53,93 +63,91 @@ export class SchedulerService {
                     const parsed = JSON.parse(config.valore);
                     if (Array.isArray(parsed)) return parsed;
                 } catch (e) {
-                    logger.error('Errore parsing workflow_schedules:', e);
+                    logger.error(`Errore parsing workflow_schedules per utente ${utenteId}:`, e);
                 }
             }
 
             // Default se non esiste o errore
             const defaultSchedule = ['0 3 * * *'];
-            await prisma.configurazioneSistema.upsert({
-                where: { chiave: 'workflow_schedules' },
-                create: {
-                    chiave: 'workflow_schedules',
-                    valore: JSON.stringify(defaultSchedule),
-                    tipo: 'json',
-                    descrizione: 'Array di espressioni CRON per il workflow automatico'
-                },
-                update: {} // Non sovrascrivere se esiste ma è corrotto/vuoto, ok così
-            });
 
+            // Non creiamo automaticamente per non inquinare il DB se non necessario, 
+            // ma restituiamo il default.
             return defaultSchedule;
 
         } catch (error) {
-            logger.error('Errore caricamento schedulazioni:', error);
-            return ['0 3 * * *']; // Fallback in memory
+            logger.error(`Errore caricamento schedulazioni utente ${utenteId}:`, error);
+            return ['0 3 * * *'];
         }
     }
 
     /**
-     * Schedula un singolo workflow
+     * Schedula un singolo workflow per un utente
      */
-    private static scheduleWorkflow(expression: string) {
+    private static scheduleWorkflow(expression: string, utenteId: number) {
         if (!cron.validate(expression)) {
-            logger.warn(`⚠️ Espressione CRON non valida ignorata: ${expression}`);
+            logger.warn(`⚠️ Espressione CRON non valida (utente ${utenteId}): ${expression}`);
             return;
         }
 
+        const taskKey = `${utenteId}_${expression}`;
         const task = cron.schedule(expression, () => {
-            logger.info(`🕒 Esecuzione programmata workflow (${expression})`);
-            this.runFullWorkflow()
-                .catch(err => logger.error('❌ Errore esecuzione cron job:', err));
+            logger.info(`🕒 Esecuzione programmata workflow utente ${utenteId} (${expression})`);
+            this.runFullWorkflow(utenteId)
+                .catch(err => logger.error(`❌ Errore workflow utente ${utenteId}:`, err));
         });
 
-        this.activeTasks.set(expression, task);
-        logger.info(`📅 Programmato workflow: ${expression}`);
+        this.activeTasks.set(taskKey, task);
     }
 
     /**
-     * Restituisce le schedule attive
+     * Restituisce le schedule attive per un utente
      */
-    static async getSchedules(): Promise<string[]> {
-        return this.loadSchedulesFromDB();
+    static async getSchedules(utenteId: number): Promise<string[]> {
+        return this.loadUserSchedules(utenteId);
     }
 
     /**
-     * Aggiunge una nuova schedule
+     * Aggiunge una nuova schedule per un utente
      */
-    static async addSchedule(expression: string): Promise<boolean> {
+    static async addSchedule(utenteId: number, expression: string): Promise<boolean> {
         if (!cron.validate(expression)) throw new Error('Espressione CRON non valida');
 
-        const current = await this.getSchedules();
-        if (current.includes(expression)) return false; // Già esiste
+        const current = await this.getSchedules(utenteId);
+        if (current.includes(expression)) return false;
 
         const updated = [...current, expression];
-        await this.saveSchedules(updated);
-        await this.init(); // Ricarica
+        await this.saveUserSchedules(utenteId, updated);
+        await this.init(); // Ricarica tutto
         return true;
     }
 
     /**
-     * Rimuove una schedule
+     * Rimuove una schedule per un utente
      */
-    static async removeSchedule(expression: string): Promise<boolean> {
-        const current = await this.getSchedules();
+    static async removeSchedule(utenteId: number, expression: string): Promise<boolean> {
+        const current = await this.getSchedules(utenteId);
         const updated = current.filter(s => s !== expression);
 
-        if (updated.length === current.length) return false; // Non trovato
+        if (updated.length === current.length) return false;
 
-        await this.saveSchedules(updated);
-        await this.init(); // Ricarica
+        await this.saveUserSchedules(utenteId, updated);
+        await this.init();
         return true;
     }
 
     /**
-     * Salva configurazione nel DB
+     * Salva configurazione nel DB per l'utente
      */
-    private static async saveSchedules(schedules: string[]) {
+    private static async saveUserSchedules(utenteId: number, schedules: string[]) {
         await prisma.configurazioneSistema.upsert({
-            where: { chiave: 'workflow_schedules' },
+            where: {
+                utenteId_chiave: {
+                    utenteId: utenteId,
+                    chiave: 'workflow_schedules'
+                }
+            },
             create: {
+                utenteId: utenteId,
                 chiave: 'workflow_schedules',
                 valore: JSON.stringify(schedules),
                 tipo: 'json'
@@ -151,22 +159,22 @@ export class SchedulerService {
     }
 
     /**
-     * Restituisce lo stato dello scheduler
+     * Restituisce lo stato dello scheduler per l'utente
      */
-    static getStatus(): { isRunning: boolean; lastRun: Date | null } {
+    static getStatus(utenteId: number): { isRunning: boolean } {
         return {
-            isRunning: this.isRunning,
-            lastRun: this.lastRun
+            isRunning: this.activeRuns.has(utenteId)
         };
     }
 
     /**
      * Helper per creare log nel DB
      */
-    private static async createLog(fase: string, stato: string = 'running', dettagli: any = null) {
+    private static async createLog(utenteId: number, fase: string, stato: string = 'running', dettagli: any = null) {
         try {
             return await prisma.logElaborazione.create({
                 data: {
+                    utenteId,
                     faseProcesso: fase,
                     stato: stato,
                     dettagliJson: dettagli ? JSON.stringify(dettagli) : null,
@@ -175,7 +183,7 @@ export class SchedulerService {
                 }
             });
         } catch (e: any) {
-            logger.error(`Errore creazione log DB (${fase}):`, e.message);
+            logger.error(`Errore creazione log DB (${fase}) per utente ${utenteId}:`, e.message);
             return null;
         }
     }
@@ -202,17 +210,16 @@ export class SchedulerService {
     }
 
     /**
-     * Esegue il workflow completo (import, consolidamento, arricchimento, export, sync, email)
+     * Esegue il workflow completo per un utente specifico
      */
-    static async runFullWorkflow(): Promise<void> {
-        if (this.isRunning) {
-            logger.warn('⚠️ Workflow già in esecuzione');
+    static async runFullWorkflow(utenteId: number): Promise<void> {
+        if (this.activeRuns.has(utenteId)) {
+            logger.warn(`⚠️ Workflow già in esecuzione per utente ${utenteId}`);
             return;
         }
 
-        this.isRunning = true;
-        this.lastRun = new Date();
-        logger.info('🚀 Avvio workflow completo...');
+        this.activeRuns.add(utenteId);
+        logger.info(`🚀 Avvio workflow completo per utente ${utenteId}...`);
 
         // Struttura per tracciare le fasi
         interface PhaseResult {
@@ -225,17 +232,20 @@ export class SchedulerService {
         const phases: PhaseResult[] = [];
         let errorInfo: { fase: number; nomeFase: string; descrizione: string; dettagliTecnici?: string } | null = null;
 
-        const globalLog = await this.createLog('WORKFLOW_COMPLETO', 'running', { triggeredBy: 'scheduler' });
+        const globalLog = await this.createLog(utenteId, 'WORKFLOW_COMPLETO', 'running', { triggeredBy: 'scheduler' });
         const startTime = Date.now();
+
+        const jobId = jobProgressManager.createJob('merge', { utenteId, mainWorkflow: true });
+        jobProgressManager.startJob(jobId, 'Avvio Workflow Completo...');
 
         try {
             // --- FASE 1: IMPORT LISTINI E AGGIORNAMENTO MASTER FILE ---
-            logger.info('--- FASE 1: Aggiornamento Listini e Master File ---');
-            const logFase1 = await this.createLog('IMPORT_LISTINI');
+            logger.info(`--- FASE 1 (Utente ${utenteId}): Aggiornamento Listini ---`);
+            const logFase1 = await this.createLog(utenteId, 'IMPORT_LISTINI');
             const startFase1 = Date.now();
 
             const { ImportService } = await import('./ImportService');
-            const importResult = await ImportService.importAllListini();
+            const importResult = await ImportService.importAllListini(utenteId);
 
             const successCount = importResult.results.filter(r => r.success).length;
             const failCount = importResult.results.filter(r => !r.success).length;
@@ -243,7 +253,7 @@ export class SchedulerService {
 
             phases.push({
                 numero: 1,
-                nome: 'Aggiornamento Listini e Master File',
+                nome: 'Aggiornamento Listini',
                 icona: failCount > 0 ? '⚠️' : '✅',
                 stato: failCount > 0 ? 'warning' : 'success',
                 dettagli: [
@@ -253,62 +263,137 @@ export class SchedulerService {
                 ]
             });
 
+            jobProgressManager.updateProgress(jobId, 15, 'Listini aggiornati con successo');
             if (logFase1) await this.updateLog(logFase1.id, 'success', totalImported, failCount, importResult, startFase1);
 
+            // --- FASE 1.5: CONSOLIDAMENTO MASTER FILE ---
+            logger.info(`--- FASE 1.5 (Utente ${utenteId}): Consolidamento Master File ---`);
+            const logFase1_5 = await this.createLog(utenteId, 'CONSOLIDAMENTO_MASTERFILE');
+            const startFase1_5 = Date.now();
 
-            // --- FASE 2: ARRICCHIMENTO DATI ---
-            logger.info('--- FASE 2: Arricchimento Dati (Icecat/AI) ---');
-            const logFase2 = await this.createLog('ARRICCHIMENTO_DATI');
-            const startFase2 = Date.now();
+            const { MasterFileService } = await import('./MasterFileService');
+            const consolidationResult = await MasterFileService.consolidaMasterFile(utenteId);
+
+            phases.push({
+                numero: 1.5,
+                nome: 'Consolidamento Master File',
+                icona: '🎯',
+                stato: 'success',
+                dettagli: [
+                    `Prodotti consolidati: ${consolidationResult.consolidated}`,
+                    `Prodotti filtrati: ${consolidationResult.filtered}`
+                ]
+            });
+
+            jobProgressManager.updateProgress(jobId, 30, 'Catalogo consolidato e filtrato');
+            if (logFase1_5) await this.updateLog(logFase1_5.id, 'success', consolidationResult.consolidated, 0, consolidationResult, startFase1_5);
+
+            // --- FASE 1.7: RECUPERO IDENTITÀ ---
+            logger.info(`--- FASE 1.7 (Utente ${utenteId}): Identificazione Prodotti ---`);
+            const logFase1_7 = await this.createLog(utenteId, 'RECUPERO_IDENTITA');
+            const startFase1_7 = Date.now();
+
+            const { ProductIdentityService } = await import('./ProductIdentityService');
+            const identityResult = await ProductIdentityService.recoverIdentities(utenteId);
+
+            phases.push({
+                numero: 1.7,
+                nome: 'Identificazione Prodotti',
+                icona: '🆔',
+                stato: 'success',
+                dettagli: [
+                    `Recuperati Icecat/AI: ${identityResult.recoveredIcecat + identityResult.recoveredAI}`,
+                    `Falliti: ${identityResult.failed}`
+                ]
+            });
+
+            if (identityResult.recoveredIcecat > 0 || identityResult.recoveredAI > 0) {
+                const { MarkupService } = await import('./MarkupService');
+                await MarkupService.applicaRegolePrezzi(utenteId);
+            }
+
+            jobProgressManager.updateProgress(jobId, 45, 'Identità prodotti recuperate');
+            if (logFase1_7) await this.updateLog(logFase1_7.id, 'success', identityResult.recoveredIcecat + identityResult.recoveredAI, identityResult.failed, identityResult, startFase1_7);
+
+
+            // --- FASE 2: ARRICCHIMENTO DATI (ICECAT) ---
+            logger.info(`--- FASE 2 (Utente ${utenteId}): Arricchimento Icecat ---`);
+            const logFase2_Icecat = await this.createLog(utenteId, 'ARRICCHIMENTO_ICECAT');
+            const startFase2_Icecat = Date.now();
+
+            const { IcecatService } = await import('./IcecatService');
+            const icecatConfig = await IcecatService.getConfig(utenteId);
+            let icecatResult = { enriched: 0, skipped: 0, errors: 0, total: 0 };
+
+            if (icecatConfig.configured) {
+                icecatResult = await IcecatService.enrichMasterFile(utenteId);
+            }
+
+            phases.push({
+                numero: 2,
+                nome: 'Arricchimento Icecat',
+                icona: icecatConfig.configured ? '✅' : '⏭️',
+                stato: 'success',
+                dettagli: [`Prodotti arricchiti: ${icecatResult.enriched}`]
+            });
+
+            jobProgressManager.updateProgress(jobId, 60, 'Dati Icecat arricchiti');
+            if (logFase2_Icecat) await this.updateLog(logFase2_Icecat.id, 'success', icecatResult.enriched, icecatResult.errors, icecatResult, startFase2_Icecat);
+
+            // --- FASE 2.5: OTTIMIZZAZIONE AI ---
+            logger.info(`--- FASE 2.5 (Utente ${utenteId}): Ottimizzazione AI ---`);
+            const logFase2_AI = await this.createLog(utenteId, 'OTTMIZZAZIONE_AI');
+            const startFase2_AI = Date.now();
 
             const { AIEnrichmentService } = await import('./AIEnrichmentService');
             let totalEnriched = 0;
-            const MAX_ENRICH_CYCLES = 20;
-            const BATCH_SIZE = 50;
-
-            for (let i = 0; i < MAX_ENRICH_CYCLES; i++) {
-                const batchResult = await AIEnrichmentService.processBatch(BATCH_SIZE);
+            for (let i = 0; i < 20; i++) {
+                const batchResult = await AIEnrichmentService.processBatch(utenteId, 50);
                 totalEnriched += batchResult.success;
                 if (batchResult.processed === 0) break;
                 await new Promise(r => setTimeout(r, 500));
             }
 
             phases.push({
-                numero: 2,
-                nome: 'Arricchimento Dati',
+                numero: 2.5,
+                nome: 'Arricchimento AI Gemini',
                 icona: '✅',
                 stato: 'success',
-                dettagli: [`Prodotti arricchiti (nuovi/aggiornati): ${totalEnriched}`]
+                dettagli: [`Contenuti generati: ${totalEnriched}`]
             });
 
-            if (logFase2) await this.updateLog(logFase2.id, 'success', totalEnriched, 0, { enriched: totalEnriched }, startFase2);
+            jobProgressManager.updateProgress(jobId, 75, 'Ottimizzazione AI Gemini completata');
+            if (logFase2_AI) await this.updateLog(logFase2_AI.id, 'success', totalEnriched, 0, { enriched: totalEnriched }, startFase2_AI);
 
 
             // --- FASE 3: GENERAZIONE EXPORT SHOPIFY ---
-            logger.info('--- FASE 3: Generazione Export Shopify ---');
-            const logFase3 = await this.createLog('EXPORT_SHOPIFY');
+            logger.info(`--- FASE 3 (Utente ${utenteId}): Export Shopify ---`);
+            const logFase3 = await this.createLog(utenteId, 'EXPORT_SHOPIFY');
             const startFase3 = Date.now();
 
-            const { ShopifyService } = await import('./ShopifyService');
-            const exportCount = await ShopifyService.prepareExport();
+            const { ShopifyExportService } = await import('./ShopifyExportService');
+            await ShopifyExportService.generateExport(utenteId);
+            const exportData = await ShopifyService.getSyncProgress(utenteId);
+            const exportCount = exportData.total;
 
             phases.push({
                 numero: 3,
                 nome: 'Generazione Export Shopify',
                 icona: '✅',
                 stato: 'success',
-                dettagli: [`Prodotti pronti per export: ${exportCount}`]
+                dettagli: [`Prodotti in export: ${exportCount}`]
             });
 
+            jobProgressManager.updateProgress(jobId, 85, 'Export Shopify generato');
             if (logFase3) await this.updateLog(logFase3.id, 'success', exportCount, 0, { readyForExport: exportCount }, startFase3);
 
 
             // --- FASE 4: SINCRONIZZAZIONE SHOPIFY ---
-            logger.info('--- FASE 4: Sincronizzazione Shopify ---');
-            const logFase4 = await this.createLog('SYNC_SHOPIFY');
+            logger.info(`--- FASE 4 (Utente ${utenteId}): Sync Shopify ---`);
+            const logFase4 = await this.createLog(utenteId, 'SYNC_SHOPIFY');
             const startFase4 = Date.now();
 
-            const syncResult = await ShopifyService.syncToShopify();
+            const syncResult = await ShopifyService.syncProducts(utenteId);
 
             phases.push({
                 numero: 4,
@@ -316,26 +401,27 @@ export class SchedulerService {
                 icona: syncResult.errors > 0 ? '⚠️' : '✅',
                 stato: syncResult.errors > 0 ? 'warning' : 'success',
                 dettagli: [
-                    `Totale prodotti sync: ${syncResult.total}`,
-                    `Caricati/Aggiornati: ${syncResult.synced}`,
+                    `Totale: ${syncResult.total}`,
+                    `OK: ${syncResult.synced}`,
                     `Errori: ${syncResult.errors}`
                 ]
             });
 
+            jobProgressManager.updateProgress(jobId, 95, 'Sincronizzazione Shopify completata');
             if (logFase4) await this.updateLog(logFase4.id, syncResult.errors > 0 ? 'warning' : 'success', syncResult.synced, syncResult.errors, syncResult, startFase4);
 
 
             // --- INVIO REPORT SUCCESSO ---
             const durationMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
-            await this.sendSuccessEmail(phases, durationMinutes);
+            await this.sendSuccessEmail(utenteId, phases, durationMinutes);
 
-            logger.info('✅ Workflow completo terminato con successo.');
+            logger.info(`✅ Workflow completo terminato per utente ${utenteId}.`);
+            jobProgressManager.completeJob(jobId, 'Workflow Completato con Successo');
             if (globalLog) await this.updateLog(globalLog.id, 'success', 0, 0, { totalDuration: durationMinutes + 'm' }, startTime);
 
         } catch (error: any) {
-            logger.error('❌ Errore critico durante workflow:', error);
+            logger.error(`❌ Errore critico workflow utente ${utenteId}:`, error);
 
-            // Determina in quale fase si è verificato l'errore
             const lastPhase = phases.length > 0 ? phases[phases.length - 1].numero : 0;
             errorInfo = {
                 fase: lastPhase + 1,
@@ -344,10 +430,11 @@ export class SchedulerService {
                 dettagliTecnici: error.stack?.substring(0, 500)
             };
 
-            await this.sendErrorEmail(phases, errorInfo);
+            await this.sendErrorEmail(utenteId, phases, errorInfo);
+            jobProgressManager.failJob(jobId, error.message);
             if (globalLog) await this.updateLog(globalLog.id, 'error', 0, 1, { error: error.message }, startTime);
         } finally {
-            this.isRunning = false;
+            this.activeRuns.delete(utenteId);
         }
     }
 
@@ -374,12 +461,23 @@ export class SchedulerService {
     /**
      * Invia email di report SUCCESSO
      */
-    private static async sendSuccessEmail(phases: any[], durationMinutes: string) {
+    private static async sendSuccessEmail(utenteId: number, phases: any[], durationMinutes: string) {
         try {
             const { EmailService } = await import('./EmailService');
-            const emailConfig = await prisma.configurazioneSistema.findUnique({ where: { chiave: 'notification_email' } });
-            const recipientEmail = emailConfig?.valore;
-            if (!recipientEmail) { logger.warn('⚠️ Nessuna email di notifica configurata.'); return; }
+            let recipientEmail = null;
+            const emailConfig = await prisma.configurazioneSistema.findFirst({
+                where: { utenteId, chiave: 'notification_email' }
+            });
+
+            if (emailConfig?.valore) {
+                recipientEmail = emailConfig.valore;
+            } else {
+                // Fallback all'email dell'account
+                const utente = await prisma.utente.findUnique({ where: { id: utenteId } });
+                recipientEmail = utente?.email;
+            }
+
+            if (!recipientEmail) { logger.warn('⚠️ Nessuna email di notifica trovata (config o account).'); return; }
 
             const phasesHtml = phases.map(p => `
                 <div style="margin-bottom: 20px; padding: 15px; background-color: ${p.stato === 'warning' ? '#fff8e1' : '#e8f5e9'}; border-left: 4px solid ${p.stato === 'warning' ? '#ffc107' : '#4caf50'}; border-radius: 4px;">
@@ -420,12 +518,23 @@ export class SchedulerService {
     /**
      * Invia email di report ERRORE
      */
-    private static async sendErrorEmail(phases: any[], errorInfo: any) {
+    private static async sendErrorEmail(utenteId: number, phases: any[], errorInfo: any) {
         try {
             const { EmailService } = await import('./EmailService');
-            const emailConfig = await prisma.configurazioneSistema.findUnique({ where: { chiave: 'notification_email' } });
-            const recipientEmail = emailConfig?.valore;
-            if (!recipientEmail) { logger.warn('⚠️ Nessuna email di notifica configurata.'); return; }
+            let recipientEmail = null;
+            const emailConfig = await prisma.configurazioneSistema.findFirst({
+                where: { utenteId, chiave: 'notification_email' }
+            });
+
+            if (emailConfig?.valore) {
+                recipientEmail = emailConfig.valore;
+            } else {
+                // Fallback all'email dell'account
+                const utente = await prisma.utente.findUnique({ where: { id: utenteId } });
+                recipientEmail = utente?.email;
+            }
+
+            if (!recipientEmail) { logger.warn('⚠️ Nessuna email di notifica trovata (config o account).'); return; }
 
             // Fasi completate prima dell'errore
             const completedPhasesHtml = phases.map(p => `

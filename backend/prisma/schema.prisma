@@ -8,16 +8,71 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+model Utente {
+  id                     Int                     @id @default(autoincrement())
+  email                  String                  @unique
+  passwordHash           String
+  nome                   String
+  cognome                String
+  ruolo                  String                  @default("merchant")
+  attivo                 Boolean                 @default(true)
+  ultimoAccesso          DateTime?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  fornitori              Fornitore[]
+  regoleMarkup           RegolaMarkup[]
+  masterFileRecords      MasterFile[]
+  logs                   LogElaborazione[]
+  configurazioni         ConfigurazioneSistema[]
+  productFilterRules     ProductFilterRule[]
+  filterPresets          FilterPreset[]
+  listiniRaw             ListinoRaw[]
+  refreshTokens          RefreshToken[]
+  passwordResetTokens    PasswordResetToken[]
+
+  @@map("utenti")
+}
+
+// Token per refresh autenticazione (durata 7 giorni)
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  utenteId  Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  utente    Utente   @relation(fields: [utenteId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([utenteId])
+  @@map("refresh_tokens")
+}
+
+// Token per reset password (durata 1 ora)
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  utenteId  Int
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  utente    Utente   @relation(fields: [utenteId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([utenteId])
+  @@map("password_reset_tokens")
+}
+
 model Fornitore {
   id                     Int                  @id @default(autoincrement())
-  nomeFornitore          String               @unique
+  utenteId               Int                  @default(1)
+  nomeFornitore          String
   urlListino             String?
   formatoFile            String
   tipoAccesso            String
   username               String?
   passwordEncrypted      String?
   ftpHost                String?
-  ftpPort                Int?
+  port                   Int?                 @map("ftpPort")
   ftpDirectory           String?
   attivo                 Boolean              @default(true)
   ultimaSincronizzazione DateTime?
@@ -27,6 +82,7 @@ model Fornitore {
   separatoreCSV          String               @default(";")
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
+  utente                 Utente               @relation(fields: [utenteId], references: [id], onDelete: Cascade)
   listiniRaw             ListinoRaw[]
   mappatureCampi         MappaturaCampo[]
   mappatureCategorie     MappaturaCategoria[]
@@ -34,6 +90,7 @@ model Fornitore {
   regoleMarkup           RegolaMarkup[]
   supplierFilters        SupplierFilter[]
 
+  @@unique([utenteId, nomeFornitore])
   @@map("fornitori")
 }
 
@@ -78,6 +135,7 @@ model Marchio {
   masterFiles  MasterFile[]
   filtri       ProductFilterRule[]
   regoleMarkup RegolaMarkup[]
+  aliases      BrandAlias[]
 
   @@index([normalizzato])
   @@map("marchi")
@@ -94,13 +152,39 @@ model Categoria {
   masterFiles  MasterFile[]
   filtri       ProductFilterRule[]
   regoleMarkup RegolaMarkup[]
+  aliases      CategoryAlias[]
 
   @@index([normalizzato])
   @@map("categorie")
 }
 
+model BrandAlias {
+  id        Int      @id @default(autoincrement())
+  utenteId  Int?
+  alias     String   @unique
+  targetId  Int
+  marchio   Marchio  @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([utenteId])
+  @@map("brand_aliases")
+}
+
+model CategoryAlias {
+  id        Int       @id @default(autoincrement())
+  utenteId  Int?
+  alias     String    @unique
+  targetId  Int
+  categoria Categoria @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@index([utenteId])
+  @@map("category_aliases")
+}
+
 model RegolaMarkup {
   id                 Int          @id @default(autoincrement())
+  utenteId           Int          @default(1)
   fornitoreId        Int?
   marchioId          Int?
   categoriaId        Int?
@@ -115,19 +199,22 @@ model RegolaMarkup {
   attiva             Boolean      @default(true)
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
-  masterFiles        MasterFile[]
+  utente             Utente       @relation(fields: [utenteId], references: [id], onDelete: Cascade)
   categoria          Categoria?   @relation(fields: [categoriaId], references: [id])
   fornitore          Fornitore?   @relation(fields: [fornitoreId], references: [id])
   marchio            Marchio?     @relation(fields: [marchioId], references: [id])
+  masterFiles        MasterFile[]
 
   @@index([tipoRegola])
   @@index([marchioId])
   @@index([categoriaId])
+  @@index([utenteId])
   @@map("regole_markup")
 }
 
 model ListinoRaw {
   id                   Int       @id @default(autoincrement())
+  utenteId             Int       @default(1)
   fornitoreId          Int
   dataImportazione     DateTime  @default(now())
   skuFornitore         String
@@ -137,22 +224,30 @@ model ListinoRaw {
   quantitaDisponibile  Int       @default(0)
   categoriaFornitore   String?
   marca                String?
+  partNumber           String?
   altriCampiJson       String?
   createdAt            DateTime  @default(now())
   fornitore            Fornitore @relation(fields: [fornitoreId], references: [id], onDelete: Cascade)
+  utente               Utente    @relation(fields: [utenteId], references: [id], onDelete: Cascade)
 
+  @@index([fornitoreId])
   @@index([fornitoreId, skuFornitore])
   @@index([eanGtin])
+  @@index([partNumber])
   @@index([dataImportazione])
+  @@index([utenteId])
+  @@index([utenteId, dataImportazione])
   @@map("listini_raw")
 }
 
 model MasterFile {
   id                      Int            @id @default(autoincrement())
-  eanGtin                 String         @unique
+  utenteId                Int            @default(1)
+  eanGtin                 String?
   skuSelezionato          String
   fornitoreSelezionatoId  Int
   nomeProdotto            String?
+  partNumber              String?
   prezzoAcquistoMigliore  Float
   prezzoVenditaCalcolato  Float
   quantitaTotaleAggregata Int            @default(0)
@@ -167,18 +262,23 @@ model MasterFile {
   fornitoreSelezionato    Fornitore      @relation(fields: [fornitoreSelezionatoId], references: [id])
   marchio                 Marchio?       @relation(fields: [marchioId], references: [id])
   regolaMarkupApplicata   RegolaMarkup?  @relation(fields: [regolaMarkupId], references: [id])
+  utente                  Utente         @relation(fields: [utenteId], references: [id], onDelete: Cascade)
   outputShopify           OutputShopify?
 
+  @@unique([utenteId, eanGtin])
+  @@index([fornitoreSelezionatoId])
   @@index([eanGtin])
+  @@index([partNumber])
   @@index([marchioId])
   @@index([categoriaId])
+  @@index([utenteId])
   @@map("master_file")
 }
 
 model DatiIcecat {
   id                     Int        @id @default(autoincrement())
   masterFileId           Int        @unique
-  eanGtin                String
+  eanGtin                String?
   descrizioneBrave       String?
   descrizioneLunga       String?
   specificheTecnicheJson String?
@@ -197,13 +297,16 @@ model DatiIcecat {
 
 model OutputShopify {
   id                    Int        @id @default(autoincrement())
+  utenteId              Int        @default(1)
   masterFileId          Int        @unique
-  handle                String     @unique
+  handle                String
   title                 String
   bodyHtml              String?
   vendor                String?
   productType           String?
   tags                  String?
+  sku                   String?
+  barcode               String?
   variantPrice          Float
   variantCompareAtPrice Float?
   variantInventoryQty   Int
@@ -221,11 +324,14 @@ model OutputShopify {
 
   @@index([statoCaricamento])
   @@index([dataGenerazione])
+  @@index([utenteId])
+  @@index([utenteId, statoCaricamento])
   @@map("output_shopify")
 }
 
 model LogElaborazione {
   id                 Int      @id @default(autoincrement())
+  utenteId           Int?     @default(1)
   dataEsecuzione     DateTime @default(now())
   faseProcesso       String
   stato              String
@@ -234,27 +340,35 @@ model LogElaborazione {
   prodottiProcessati Int      @default(0)
   prodottiErrore     Int      @default(0)
   createdAt          DateTime @default(now())
+  utente             Utente?  @relation(fields: [utenteId], references: [id], onDelete: SetNull)
 
   @@index([dataEsecuzione])
   @@index([faseProcesso])
   @@index([stato])
+  @@index([utenteId])
+  @@index([utenteId, dataEsecuzione])
+  @@index([utenteId, stato])
   @@map("log_elaborazioni")
 }
 
 model ConfigurazioneSistema {
   id          Int      @id @default(autoincrement())
-  chiave      String   @unique
+  utenteId    Int?     @default(1)
+  chiave      String
   valore      String
   tipo        String   @default("string")
   descrizione String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  utente      Utente?  @relation(fields: [utenteId], references: [id], onDelete: Cascade)
 
+  @@unique([utenteId, chiave])
   @@map("configurazione_sistema")
 }
 
 model SupplierFilter {
   id               Int       @id @default(autoincrement())
+  utenteId         Int       @default(1)
   fornitoreId      Int
   nome             String
   marcheIncluse    String?
@@ -271,26 +385,13 @@ model SupplierFilter {
 
   @@index([fornitoreId])
   @@index([attivo])
+  @@index([utenteId])
   @@map("supplier_filters")
-}
-
-model Utente {
-  id            Int       @id @default(autoincrement())
-  email         String    @unique
-  passwordHash  String
-  nome          String
-  cognome       String
-  ruolo         String    @default("admin")
-  attivo        Boolean   @default(true)
-  ultimoAccesso DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  @@map("utenti")
 }
 
 model ProductFilterRule {
   id          Int        @id @default(autoincrement())
+  utenteId    Int        @default(1)
   nome        String
   tipoFiltro  String     @default("custom")
   marchioId   Int?
@@ -303,19 +404,24 @@ model ProductFilterRule {
   updatedAt   DateTime   @updatedAt
   categoria   Categoria? @relation(fields: [categoriaId], references: [id])
   marchio     Marchio?   @relation(fields: [marchioId], references: [id])
+  utente      Utente     @relation(fields: [utenteId], references: [id], onDelete: Cascade)
 
   @@index([marchioId])
   @@index([categoriaId])
+  @@index([utenteId])
   @@map("product_filter_rules")
 }
 
 model FilterPreset {
   id          Int      @id @default(autoincrement())
+  utenteId    Int      @default(1)
   nome        String
   descrizione String?
   attivo      Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  utente      Utente   @relation(fields: [utenteId], references: [id], onDelete: Cascade)
 
+  @@index([utenteId])
   @@map("filter_presets")
 }

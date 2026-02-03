@@ -6,8 +6,12 @@ import {
     updateCategoria,
     deleteCategoria
 } from '../controllers/categorie.controller';
+import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// Tutte le rotte delle categorie richiedono autenticazione
+router.use(authMiddleware);
 
 router.get('/', getCategorie);
 router.get('/:id', getCategoriaById);

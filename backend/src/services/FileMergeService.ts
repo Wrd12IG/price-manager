@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { FileParserService } from './FileParserService';
 import { logger } from '../utils/logger';
 

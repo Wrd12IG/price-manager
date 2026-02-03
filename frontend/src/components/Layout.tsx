@@ -32,23 +32,29 @@ import {
     FilterList as FilterIcon,
     Star as StarIcon,
     Folder as FolderIcon,
+    AdminPanelSettings as AdminIcon,
+    AutoFixHigh as NormalizationIcon,
 } from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
 
 const drawerWidth = 280;
 
-interface MenuItem {
+interface MenuItemType {
     text: string;
     icon: ReactNode;
     path: string;
+    adminOnly?: boolean;
 }
 
-const menuItems: MenuItem[] = [
+const menuItems: MenuItemType[] = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+    { text: 'Amministrazione', icon: <AdminIcon />, path: '/admin', adminOnly: true },
     { text: 'Fornitori', icon: <StoreIcon />, path: '/fornitori' },
     { text: 'Mappature', icon: <MapIcon />, path: '/mappature' },
     { text: 'Marchi', icon: <StarIcon />, path: '/marchi' },
     { text: 'Categorie', icon: <FolderIcon />, path: '/categorie' },
-    { text: 'Prezzi e Ricarichi', icon: <PriceIcon />, path: '/pricing' },
+    { text: 'Normalizzazione', icon: <NormalizationIcon />, path: '/normalization' },
+    { text: 'Regole Pricing', icon: <PriceIcon />, path: '/pricing' },
     { text: 'Filtri Prodotti', icon: <FilterIcon />, path: '/filters' },
     { text: 'Master File', icon: <InventoryIcon />, path: '/master-file' },
     { text: 'Integrazioni', icon: <IntegrationIcon />, path: '/integrazioni' },
@@ -65,6 +71,9 @@ export default function Layout({ children }: LayoutProps) {
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const navigate = useNavigate();
     const location = useLocation();
+    const { user, logout } = useAuth();
+
+    const userRole = user?.ruolo || null;
 
     const handleDrawerToggle = () => {
         setMobileOpen(!mobileOpen);
@@ -76,6 +85,11 @@ export default function Layout({ children }: LayoutProps) {
 
     const handleMenuClose = () => {
         setAnchorEl(null);
+    };
+
+    const handleLogout = async () => {
+        handleMenuClose();
+        await logout();
     };
 
     const drawer = (
@@ -97,41 +111,51 @@ export default function Layout({ children }: LayoutProps) {
                 </Box>
             </Toolbar>
             <List sx={{ flex: 1, pt: 2 }}>
-                {menuItems.map((item) => {
-                    const isActive = location.pathname === item.path;
-                    return (
-                        <ListItem key={item.text} disablePadding sx={{ px: 2, mb: 0.5 }}>
-                            <ListItemButton
-                                onClick={() => navigate(item.path)}
-                                sx={{
-                                    borderRadius: 2,
-                                    backgroundColor: isActive ? 'rgba(255, 215, 0, 0.15)' : 'transparent',
-                                    color: isActive ? '#FFD700' : 'white',
-                                    '&:hover': {
-                                        backgroundColor: isActive
-                                            ? 'rgba(255, 215, 0, 0.25)'
-                                            : 'rgba(255, 255, 255, 0.08)',
-                                    },
-                                }}
-                            >
-                                <ListItemIcon sx={{ color: '#FFD700', minWidth: 40 }}>
-                                    {item.icon}
-                                </ListItemIcon>
-                                <ListItemText
-                                    primary={item.text}
-                                    primaryTypographyProps={{
-                                        fontWeight: isActive ? 600 : 400,
-                                        fontSize: '0.95rem',
+                {menuItems
+                    .filter(item => !item.adminOnly || userRole === 'admin')
+                    .map((item) => {
+                        const isActive = location.pathname === item.path;
+                        return (
+                            <ListItem key={item.text} disablePadding sx={{ px: 2, mb: 0.5 }}>
+                                <ListItemButton
+                                    onClick={() => navigate(item.path)}
+                                    sx={{
+                                        borderRadius: 2,
+                                        backgroundColor: isActive ? 'rgba(255, 215, 0, 0.15)' : 'transparent',
+                                        color: isActive ? '#FFD700' : 'white',
+                                        '&:hover': {
+                                            backgroundColor: isActive
+                                                ? 'rgba(255, 215, 0, 0.25)'
+                                                : 'rgba(255, 255, 255, 0.08)',
+                                        },
                                     }}
-                                />
-                            </ListItemButton>
-                        </ListItem>
-                    );
-                })}
+                                >
+                                    <ListItemIcon sx={{ color: '#FFD700', minWidth: 40 }}>
+                                        {item.icon}
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={item.text}
+                                        primaryTypographyProps={{
+                                            fontWeight: isActive ? 600 : 400,
+                                            fontSize: '0.95rem',
+                                        }}
+                                    />
+                                </ListItemButton>
+                            </ListItem>
+                        );
+                    })}
             </List>
             <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.12)' }} />
             <Box sx={{ p: 2, textAlign: 'center', color: 'rgba(255, 255, 255, 0.5)' }}>
-                <Typography variant="caption">v1.0.0</Typography>
+                <Typography variant="caption" display="block" sx={{ fontWeight: 600 }}>
+                    v2.0.0
+                </Typography>
+                <Typography variant="caption" display="block" sx={{ fontSize: '0.65rem', mt: 0.5 }}>
+                    Last updated: 26/01/2026
+                </Typography>
+                <Typography variant="caption" display="block" sx={{ fontSize: '0.65rem', mt: 1, opacity: 0.7 }}>
+                    © 2026 WR Digital
+                </Typography>
             </Box>
         </Box>
     );
@@ -181,7 +205,7 @@ export default function Layout({ children }: LayoutProps) {
                         <MenuItem onClick={() => { handleMenuClose(); navigate('/profile'); }}>Profilo</MenuItem>
                         <MenuItem onClick={() => { handleMenuClose(); navigate('/profile'); }}>Impostazioni</MenuItem>
                         <Divider />
-                        <MenuItem onClick={handleMenuClose}>Esci</MenuItem>
+                        <MenuItem onClick={handleLogout} sx={{ color: 'error.main' }}>Esci</MenuItem>
                     </Menu>
                 </Toolbar>
             </AppBar>
@@ -197,14 +221,11 @@ export default function Layout({ children }: LayoutProps) {
                     open={mobileOpen}
                     onClose={handleDrawerToggle}
                     ModalProps={{
-                        keepMounted: true, // Better open performance on mobile.
+                        keepMounted: true,
                     }}
                     sx={{
                         display: { xs: 'block', sm: 'none' },
-                        '& .MuiDrawer-paper': {
-                            boxSizing: 'border-box',
-                            width: drawerWidth,
-                        },
+                        '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
                     }}
                 >
                     {drawer}
@@ -214,11 +235,7 @@ export default function Layout({ children }: LayoutProps) {
                     variant="permanent"
                     sx={{
                         display: { xs: 'none', sm: 'block' },
-                        '& .MuiDrawer-paper': {
-                            boxSizing: 'border-box',
-                            width: drawerWidth,
-                            borderRight: '1px solid rgba(0, 0, 0, 0.08)',
-                        },
+                        '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
                     }}
                     open
                 >
@@ -226,19 +243,18 @@ export default function Layout({ children }: LayoutProps) {
                 </Drawer>
             </Box>
 
-            {/* Main content */}
+            {/* Main Content */}
             <Box
                 component="main"
                 sx={{
                     flexGrow: 1,
-                    p: 3,
                     width: { sm: `calc(100% - ${drawerWidth}px)` },
                     minHeight: '100vh',
-                    backgroundColor: 'background.default',
+                    backgroundColor: '#f5f7fa',
                 }}
             >
                 <Toolbar />
-                <Container maxWidth="xl" sx={{ mt: 2 }}>
+                <Container maxWidth="xl" sx={{ py: 3 }}>
                     {children}
                 </Container>
             </Box>

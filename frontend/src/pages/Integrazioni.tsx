@@ -48,7 +48,7 @@ export default function Integrazioni() {
     const [config, setConfig] = useState({
         shopUrl: '',
         accessToken: '',
-        hasToken: false,
+        configured: false,
         placeholderImageUrl: ''
     });
     const [loading, setLoading] = useState(true);
@@ -68,7 +68,7 @@ export default function Integrazioni() {
     const [icecatConfig, setIcecatConfig] = useState({
         username: '',
         password: '',
-        hasPassword: false
+        configured: false
     });
     const [enriching, setEnriching] = useState(false);
     const [editingPassword, setEditingPassword] = useState(false);
@@ -103,12 +103,24 @@ export default function Integrazioni() {
         estimatedMinutesRemaining: 0
     });
 
+    // AI Progress State
+    const [aiProgress, setAiProgress] = useState({
+        total: 0,
+        processed: 0,
+        pending: 0,
+        percentage: 0,
+        isRunning: false
+    });
+
+    const [aiEnriching, setAiEnriching] = useState(false);
+
     useEffect(() => {
         fetchConfig();
         fetchIcecatConfig();
         fetchShopifyPreview(); // Load preview initially
         fetchIcecatProgress(); // Load initial progress
         fetchShopifyProgress(); // Load initial Shopify progress
+        fetchAIProgress(); // Load initial AI progress
     }, []);
 
     // Poll Icecat progress every 5 seconds if enrichment is running
@@ -137,17 +149,33 @@ export default function Integrazioni() {
         };
     }, [shopifyProgress.isRunning, syncing]);
 
+    // Poll AI progress every 5 seconds if enrichment is running
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (aiEnriching) {
+            interval = setInterval(() => {
+                fetchAIProgress();
+            }, 5000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [aiEnriching]);
+
     // --- API CALLS: SHOPIFY ---
 
     const fetchConfig = async () => {
         try {
             const response = await api.get('/shopify/config');
-            setConfig({
-                shopUrl: response.data.data.shopUrl,
-                accessToken: '',
-                hasToken: response.data.data.hasToken,
-                placeholderImageUrl: response.data.data.placeholderImageUrl || ''
-            });
+            const data = response.data?.data;
+            if (data) {
+                setConfig({
+                    shopUrl: data.shopUrl || '',
+                    accessToken: '',
+                    configured: data.configured || false,
+                    placeholderImageUrl: data.placeholderImageUrl || ''
+                });
+            }
         } catch (error) {
             console.error(error);
             toast.error('Errore caricamento configurazione Shopify');
@@ -179,8 +207,8 @@ export default function Integrazioni() {
                     limit: previewRowsPerPage
                 }
             });
-            setPreviewData(response.data?.data?.data || []);
-            setPreviewTotal(response.data.data.total);
+            setPreviewData(response.data?.data?.products || []);
+            setPreviewTotal(response.data?.data?.pagination?.total || 0);
         } catch (error) {
             console.error(error);
         } finally {
@@ -282,11 +310,14 @@ export default function Integrazioni() {
     const fetchIcecatConfig = async () => {
         try {
             const response = await api.get('/icecat/config');
-            setIcecatConfig({
-                username: response.data.data.username || '',
-                password: '',
-                hasPassword: response.data.data.hasPassword || false
-            });
+            const data = response.data?.data;
+            if (data) {
+                setIcecatConfig({
+                    username: data.username || '',
+                    password: '',
+                    configured: data.configured || false
+                });
+            }
         } catch (error) {
             console.error(error);
         }
@@ -295,7 +326,16 @@ export default function Integrazioni() {
     const fetchIcecatProgress = async () => {
         try {
             const response = await api.get('/icecat/progress');
-            setIcecatProgress(response.data.data);
+            if (response.data?.success) {
+                const { total, enriched, pending, percentage } = response.data.data || {};
+                setIcecatProgress(prev => ({
+                    ...prev,
+                    total: total || 0,
+                    enriched: enriched || 0,
+                    remaining: pending || 0,
+                    percentage: percentage || 0
+                }));
+            }
         } catch (error) {
             console.error(error);
         }
@@ -304,7 +344,38 @@ export default function Integrazioni() {
     const fetchShopifyProgress = async () => {
         try {
             const response = await api.get('/shopify/progress');
-            setShopifyProgress(response.data.data);
+            if (response.data?.success) {
+                const { total, uploaded, pending, errors, percentage } = response.data.data || {};
+                setShopifyProgress(prev => ({
+                    ...prev,
+                    total: total || 0,
+                    uploaded: uploaded || 0,
+                    pending: pending || 0,
+                    errors: errors || 0,
+                    percentage: percentage || 0
+                }));
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const fetchAIProgress = async () => {
+        try {
+            const response = await api.get('/ai/stats');
+            if (response.data?.success) {
+                const data = response.data.data || {};
+                setAiProgress(prev => ({
+                    ...prev,
+                    ...data,
+                    isRunning: aiEnriching
+                }));
+
+                // Se abbiamo finito il batch, ferma il polling
+                if (data.pending === 0 && aiEnriching) {
+                    setAiEnriching(false);
+                }
+            }
         } catch (error) {
             console.error(error);
         }
@@ -320,7 +391,7 @@ export default function Integrazioni() {
                 }
             });
             setEnrichedData(response.data?.data?.data || []);
-            setEnrichedTotal(response.data.data.total);
+            setEnrichedTotal(response.data?.data?.pagination?.total || 0);
         } catch (error) {
             console.error(error);
             toast.error('Errore caricamento prodotti arricchiti');
@@ -405,7 +476,7 @@ export default function Integrazioni() {
                             title={
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                                     <Typography variant="h6" fontWeight={700}>Arricchimento Dati (ICecat)</Typography>
-                                    {icecatConfig.username &&
+                                    {icecatConfig.configured &&
                                         <Chip
                                             label="Attivo"
                                             size="small"
@@ -471,7 +542,7 @@ export default function Integrazioni() {
                                     />
                                 </Grid>
                                 <Grid item xs={12} md={4}>
-                                    {icecatConfig.hasPassword && !editingPassword ? (
+                                    {icecatConfig.configured && !editingPassword ? (
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                             <TextField
                                                 label="Password"
@@ -491,8 +562,8 @@ export default function Integrazioni() {
                                             fullWidth
                                             size="small"
                                             type="password"
-                                            placeholder={icecatConfig.hasPassword ? "Nuova password" : "Password"}
-                                            value={icecatConfig.password}
+                                            placeholder={icecatConfig.configured ? "Nuova password" : "Password"}
+                                            value={icecatConfig.password || ''}
                                             onChange={(e) => setIcecatConfig({ ...icecatConfig, password: e.target.value })}
                                         />
                                     )}
@@ -550,7 +621,7 @@ export default function Integrazioni() {
                                                     Progresso Arricchimento
                                                 </Typography>
                                                 <Typography variant="body2" color="text.secondary">
-                                                    {icecatProgress.enriched.toLocaleString()} / {icecatProgress.total.toLocaleString()} prodotti ({icecatProgress.percentage}%)
+                                                    {(icecatProgress.enriched || 0).toLocaleString()} / {(icecatProgress.total || 0).toLocaleString()} prodotti ({icecatProgress.percentage || 0}%)
                                                 </Typography>
                                             </Box>
                                             <LinearProgress
@@ -569,12 +640,12 @@ export default function Integrazioni() {
                                                 <Typography variant="caption" color="text.secondary">
                                                     {icecatProgress.isRunning ? (
                                                         <>
-                                                            🔄 In esecuzione... Rimanenti: {icecatProgress.remaining.toLocaleString()} prodotti
+                                                            🔄 In esecuzione... Rimanenti: {(icecatProgress.remaining || 0).toLocaleString()} prodotti
                                                         </>
                                                     ) : icecatProgress.percentage === 100 ? (
                                                         '✅ Arricchimento completato'
                                                     ) : (
-                                                        `⏸️ In pausa - ${icecatProgress.remaining.toLocaleString()} prodotti da arricchire`
+                                                        `⏸️ In pausa - ${(icecatProgress.remaining || 0).toLocaleString()} prodotti da arricchire`
                                                     )}
                                                 </Typography>
                                                 {icecatProgress.isRunning && icecatProgress.estimatedMinutesRemaining > 0 && (
@@ -590,6 +661,79 @@ export default function Integrazioni() {
                         </CardContent>
                     </Card>
                 </Grid>
+                {/* 2. AI ENRICHMENT (MIDDLE) */}
+                <Grid item xs={12}>
+                    <Card elevation={3}>
+                        <CardHeader
+                            avatar={<MemoryIcon sx={{ color: '#FFD700', fontSize: 40 }} />}
+                            title={<Typography variant="h6" fontWeight={700}>Arricchimento AI (Gemini)</Typography>}
+                            subheader="Migliora titoli e descrizioni usando l'intelligenza artificiale"
+                            action={
+                                aiProgress.processed > 0 &&
+                                <Chip
+                                    label={`${aiProgress.processed} Prodotti Pronti`}
+                                    size="small"
+                                    sx={{ backgroundColor: '#000', color: '#fff' }}
+                                />
+                            }
+                        />
+                        <Divider />
+                        <CardContent>
+                            <Box sx={{ mb: 3 }}>
+                                <Typography variant="body2" color="text.secondary" paragraph>
+                                    L'AI analizzerà i dati tecnici di Icecat per generare titoli SEO professionali
+                                    e descrizioni HTML eleganti caricate direttamente su Shopify.
+                                </Typography>
+                                <Alert severity="warning" sx={{ mb: 2 }}>
+                                    Assicurati di aver completato l'arricchimento Icecat per i prodotti che desideri migliorare.
+                                </Alert>
+                            </Box>
+
+                            <Grid container spacing={2} alignItems="center">
+                                <Grid item xs={12} md={8}>
+                                    {aiProgress.total > 0 && (
+                                        <Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                                                <Typography variant="body2" fontWeight={600}>
+                                                    Progresso AI
+                                                </Typography>
+                                                <Typography variant="body2">
+                                                    {aiProgress.processed} / {aiProgress.total} ({aiProgress.percentage}%)
+                                                </Typography>
+                                            </Box>
+                                            <LinearProgress
+                                                variant="determinate"
+                                                value={aiProgress.percentage}
+                                                sx={{ height: 10, borderRadius: 5, backgroundColor: 'rgba(0,0,0,0.05)', '& .MuiLinearProgress-bar': { backgroundColor: '#FFD700' } }}
+                                            />
+                                        </Box>
+                                    )}
+                                </Grid>
+                                <Grid item xs={12} md={4}>
+                                    <Button
+                                        variant="contained"
+                                        fullWidth
+                                        startIcon={aiEnriching ? <CircularProgress size={20} color="inherit" /> : <MemoryIcon sx={{ color: '#FFD700' }} />}
+                                        onClick={async () => {
+                                            setAiEnriching(true);
+                                            try {
+                                                await api.post('/ai/enrich?limit=500'); // Processa un bel blocco
+                                                toast.info('Arricchimento AI avviato in background');
+                                                fetchAIProgress();
+                                            } catch (e) {
+                                                setAiEnriching(false);
+                                                toast.error('Errore avvio AI');
+                                            }
+                                        }}
+                                        disabled={aiEnriching || aiProgress.total === 0}
+                                    >
+                                        {aiEnriching ? 'AI in corso...' : 'Migliora con AI'}
+                                    </Button>
+                                </Grid>
+                            </Grid>
+                        </CardContent>
+                    </Card>
+                </Grid>
 
                 {/* 2. SHOPIFY (MIDDLE) */}
                 <Grid item xs={12}>
@@ -599,7 +743,7 @@ export default function Integrazioni() {
                             title={<Typography variant="h6" fontWeight={700}>Shopify Export</Typography>}
                             subheader="Configurazione e sincronizzazione catalogo"
                             action={
-                                config.hasToken &&
+                                config.configured &&
                                 <Chip
                                     label="Connesso"
                                     size="small"
@@ -636,10 +780,10 @@ export default function Integrazioni() {
                                         label="Admin API Access Token"
                                         fullWidth
                                         type="password"
-                                        placeholder={config.hasToken ? '••••••••••••••••' : 'shpat_...'}
-                                        value={config.accessToken}
+                                        placeholder={config.configured ? '••••••••••••••••' : 'shpat_...'}
+                                        value={config.accessToken || ''}
                                         onChange={(e) => setConfig({ ...config, accessToken: e.target.value })}
-                                        helperText={config.hasToken ? 'Lascia vuoto per mantenere attuale' : 'Richiesto'}
+                                        helperText={config.configured ? 'Lascia vuoto per mantenere attuale' : 'Richiesto'}
                                     />
                                 </Grid>
                                 <Grid item xs={12} md={2} sx={{ display: 'flex', alignItems: 'flex-start' }}>
@@ -722,35 +866,32 @@ export default function Integrazioni() {
                                                 <TableBody>
                                                     {loadingPreview ? (
                                                         <TableRow>
-                                                            <TableCell colSpan={6} align="center"><CircularProgress size={24} /></TableCell>
+                                                            <TableCell colSpan={7} align="center"><CircularProgress size={24} /></TableCell>
                                                         </TableRow>
                                                     ) : previewData.length === 0 ? (
                                                         <TableRow>
-                                                            <TableCell colSpan={6} align="center">Nessun dato pronto per l'export. Avvia la sincronizzazione per generare l'output.</TableCell>
+                                                            <TableCell colSpan={7} align="center">Nessun dato pronto per l'export. Avvia la sincronizzazione per generare l'output.</TableCell>
                                                         </TableRow>
                                                     ) : (
-                                                        previewData.map((row) => (
+                                                        previewData.filter(r => r && r.id).map((row) => (
                                                             <TableRow key={row.id}>
-                                                                <TableCell>{row.handle}</TableCell>
-                                                                <TableCell>{row.title}</TableCell>
+                                                                <TableCell>{row.handle || 'N/D'}</TableCell>
+                                                                <TableCell>{row.title || 'Senza titolo'}</TableCell>
                                                                 <TableCell>
-                                                                    {row.tags && row.tags.split(',').map((tag: string, index: number) => (
+                                                                    {row.tags && typeof row.tags === 'string' ? row.tags.split(',').map((tag: string, index: number) => (
                                                                         <Chip key={index} label={tag.trim()} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
-                                                                    ))}
+                                                                    )) : '-'}
                                                                 </TableCell>
-                                                                <TableCell>€ {row.variantPrice}</TableCell>
-                                                                <TableCell>{row.variantInventoryQty}</TableCell>
+                                                                <TableCell>€ {row.variantPrice || '0.00'}</TableCell>
+                                                                <TableCell>{row.variantInventoryQty || 0}</TableCell>
                                                                 <TableCell>
                                                                     <Chip
-                                                                        label={row.statoCaricamento}
+                                                                        label={row.statoCaricamento || 'pending'}
                                                                         size="small"
                                                                         sx={{
                                                                             ...(row.statoCaricamento === 'uploaded' && {
                                                                                 backgroundColor: '#000000',
                                                                                 color: '#ffffff',
-                                                                            }),
-                                                                            ...(row.statoCaricamento === 'error' && {
-                                                                                // keep error color or make it standard? match theme
                                                                             })
                                                                         }}
                                                                         color={row.statoCaricamento === 'uploaded' ? 'default' : row.statoCaricamento === 'error' ? 'error' : 'default'}
@@ -840,7 +981,7 @@ export default function Integrazioni() {
                                                     Progresso Sincronizzazione
                                                 </Typography>
                                                 <Typography variant="body2" color="text.secondary">
-                                                    {shopifyProgress.uploaded.toLocaleString()} / {shopifyProgress.total.toLocaleString()} prodotti ({shopifyProgress.percentage}%)
+                                                    {(shopifyProgress.uploaded || 0).toLocaleString()} / {(shopifyProgress.total || 0).toLocaleString()} prodotti ({shopifyProgress.percentage || 0}%)
                                                 </Typography>
                                             </Box>
                                             <LinearProgress
@@ -859,12 +1000,12 @@ export default function Integrazioni() {
                                                 <Typography variant="caption" color="text.secondary">
                                                     {shopifyProgress.isRunning ? (
                                                         <>
-                                                            🔄 Sincronizzazione in corso... Rimanenti: {shopifyProgress.pending.toLocaleString()} prodotti
+                                                            🔄 Sincronizzazione in corso... Rimanenti: {(shopifyProgress.pending || 0).toLocaleString()} prodotti
                                                         </>
                                                     ) : shopifyProgress.percentage === 100 ? (
                                                         '✅ Sincronizzazione completata'
                                                     ) : (
-                                                        `⏸️ In attesa - ${shopifyProgress.pending.toLocaleString()} prodotti da sincronizzare`
+                                                        `⏸️ In attesa - ${(shopifyProgress.pending || 0).toLocaleString()} prodotti da sincronizzare`
                                                     )}
                                                     {shopifyProgress.errors > 0 && (
                                                         <> • ⚠️ {shopifyProgress.errors} errori</>
@@ -915,7 +1056,7 @@ export default function Integrazioni() {
                                         <TableCell colSpan={5} align="center">Nessun prodotto arricchito trovato.</TableCell>
                                     </TableRow>
                                 ) : (
-                                    enrichedData.map((item) => (
+                                    enrichedData.filter(i => i && i.id).map((item) => (
                                         <TableRow key={item.id}>
                                             <TableCell>{item.eanGtin}</TableCell>
                                             <TableCell>
@@ -935,12 +1076,19 @@ export default function Integrazioni() {
                                             </TableCell>
                                             <TableCell>
                                                 {item.urlImmaginiJson ? (
-                                                    <Chip label={`${JSON.parse(item.urlImmaginiJson).length} Img`} size="small" color="primary" variant="outlined" />
+                                                    (() => {
+                                                        try {
+                                                            const urls = JSON.parse(item.urlImmaginiJson);
+                                                            return <Chip label={`${Array.isArray(urls) ? urls.length : 0} Img`} size="small" color="primary" variant="outlined" />;
+                                                        } catch (e) {
+                                                            return <Chip label="Err Img" size="small" color="error" variant="outlined" />;
+                                                        }
+                                                    })()
                                                 ) : (
                                                     <Typography variant="caption" color="text.secondary">-</Typography>
                                                 )}
                                             </TableCell>
-                                            <TableCell>{new Date(item.updatedAt).toLocaleString()}</TableCell>
+                                            <TableCell>{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'N/D'}</TableCell>
                                         </TableRow>
                                     ))
                                 )}

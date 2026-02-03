@@ -16,7 +16,12 @@ import {
     deleteSupplierFilter
 } from '../controllers/fornitori.controller';
 
+import { authMiddleware } from '../middleware/auth.middleware';
+
 const router = Router();
+
+// Protezione multi-tenant
+router.use(authMiddleware);
 
 // CRUD routes
 router.get('/', getAllFornitori);

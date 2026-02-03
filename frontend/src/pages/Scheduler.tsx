@@ -426,53 +426,6 @@ export default function Scheduler() {
                 </Grid>
             </Grid>
 
-            {/* Logs Table Section */}
-            <Typography variant="h5" fontWeight={600} gutterBottom sx={{ mt: 4 }}>
-                Log Esecuzioni Recenti
-            </Typography>
-            <TableContainer component={Paper}>
-                <Table>
-                    <TableHead>
-                        <TableRow sx={{ backgroundColor: '#f9fafb' }}>
-                            <TableCell sx={{ fontWeight: 600 }}>Data Esecuzione</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Fase / Tipo</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Stato</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Durata</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>Dettagli</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {loading ? (
-                            <TableRow>
-                                <TableCell colSpan={5} align="center" sx={{ py: 4 }}><CircularProgress /></TableCell>
-                            </TableRow>
-                        ) : (logs?.length || 0) === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>Nessun log presente.</TableCell>
-                            </TableRow>
-                        ) : (
-                            logs?.map((log) => (
-                                <TableRow key={log.id} hover>
-                                    <TableCell>{new Date(log.dataEsecuzione).toLocaleString()}</TableCell>
-                                    <TableCell>
-                                        <Typography variant="body2" fontWeight={500}>
-                                            {formatPhase(log.faseProcesso)}
-                                        </Typography>
-                                    </TableCell>
-                                    <TableCell>{getStatusChip(log.stato)}</TableCell>
-                                    <TableCell>{log.durataSecondi ? `${log.durataSecondi}s` : '-'}</TableCell>
-                                    <TableCell>
-                                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                                            {JSON.stringify(log.dettagliJson || {})}
-                                        </Typography>
-                                    </TableCell>
-                                </TableRow>
-                            ))
-                        )}
-                    </TableBody>
-                </Table>
-            </TableContainer>
-
             {/* Dialogs */}
             <Dialog
                 open={!!scheduleToDelete}

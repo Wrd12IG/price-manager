@@ -25,6 +25,8 @@ import filtersRoutes from './routes/filters';
 import marchiRoutes from './routes/marchi.routes';
 import categorieRoutes from './routes/categorie.routes';
 import settingsRoutes from './routes/settings.routes';
+import aiRoutes from './routes/ai.routes';
+import normalizationRoutes from './routes/normalization.routes';
 
 // Load environment variables
 dotenv.config();
@@ -43,10 +45,28 @@ app.use(helmet({
     contentSecurityPolicy: false, // Disabilitato per facilitare il testing iniziale
 }));
 
-// CORS
+// CORS - Configurazione completa per Safari e altri browser
 app.use(cors({
-    origin: true, // In produzione andrebbe limitato, ma per ora lo lasciamo aperto
-    credentials: true
+    origin: (origin, callback) => {
+        const allowedOrigins = [
+            'http://localhost:5173',
+            'http://localhost:3000',
+            'https://pricemanager.wrdigital.it',
+            'https://api.pricemanager.wrdigital.it'
+        ];
+        // Safari a volte invia richieste senza origin
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log('CORS blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    exposedHeaders: ['Content-Length', 'X-Request-Id'],
+    maxAge: 86400 // Cache preflight per 24h
 }));
 
 // Compression
@@ -56,20 +76,68 @@ app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000,
-    message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
+// ============================================
+// RATE LIMITING DIFFERENZIATO
+// ============================================
 
-// Request logging middleware
+// Rate limiter per login (anti brute-force)
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minuti
+    max: 10, // Max 10 tentativi login per 15 min
+    message: { error: 'Troppi tentativi di login. Riprova tra 15 minuti.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Rate limiter per import (operazioni pesanti)
+const importLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 ora
+    max: 20, // Max 20 import all'ora
+    message: { error: 'Limite importazioni raggiunto. Riprova tra un\'ora.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Rate limiter standard per API generiche
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minuti
+    max: 200, // 200 richieste per 15 min
+    message: { error: 'Troppe richieste. Riprova più tardi.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Applica rate limiters specifici
+app.use('/api/auth/login', authLimiter);
+app.use('/api/fornitori/*/import', importLimiter);
+app.use('/api/scheduler/run', importLimiter);
+app.use('/api/', generalLimiter);
+
+// ============================================
+// ENHANCED REQUEST LOGGING
+// ============================================
 app.use((req, res, next) => {
-    logger.info(`${req.method} ${req.path}`, {
-        ip: req.ip,
-        userAgent: req.get('user-agent')
+    const startTime = Date.now();
+
+    res.on('finish', () => {
+        const duration = Date.now() - startTime;
+        const logData = {
+            ip: req.ip,
+            userAgent: req.get('user-agent'),
+            statusCode: res.statusCode,
+            durationMs: duration
+        };
+
+        // Log con livello appropriato
+        if (res.statusCode >= 500) {
+            logger.error(`${req.method} ${req.path}`, logData);
+        } else if (res.statusCode >= 400) {
+            logger.warn(`${req.method} ${req.path}`, logData);
+        } else {
+            logger.info(`${req.method} ${req.path}`, logData);
+        }
     });
+
     next();
 });
 
@@ -86,8 +154,14 @@ app.get('/health', (req: Request, res: Response) => {
     });
 });
 
-// API routes
+import adminRoutes from './routes/admin.routes';
+import jobsRoutes from './routes/jobs.routes';
+
+// ... (existing imports skipped in concept but present in real file)
+
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/jobs', jobsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/fornitori', fornitoriRoutes);
 app.use('/api/mappature', mappatureRoutes);
@@ -102,6 +176,8 @@ app.use('/api/filters', filtersRoutes);
 app.use('/api/marchi', marchiRoutes);
 app.use('/api/categorie', categorieRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/normalization', normalizationRoutes);
 
 // Static files (Se presenti)
 const publicPath = path.join(__dirname, '../public');

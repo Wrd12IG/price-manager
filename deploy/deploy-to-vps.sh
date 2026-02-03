@@ -32,10 +32,21 @@ ssh ${VPS_USER}@${VPS_IP} << 'REMOTE'
 set -e
 cd /var/www/price-manager
 
-# Estrai archivio
+# Mostra info per debug
+echo "📂 Directory attuale: $(pwd)"
+echo "⚙️ PM2 Status:"
+pm2 status
+
+# Pulizia e Estrazione
+echo "🧹 Pulizia versioni precedenti..."
+rm -rf public dist
 tar -xzf /tmp/backend.tar.gz
 mv backend/* . 2>/dev/null || true
 rm -rf backend /tmp/backend.tar.gz
+
+# Verifica cartella public
+echo "📁 Contenuto cartella public/assets:"
+ls -la public/assets || echo "⚠️ Cartella assets non trovata!"
 
 # Installa dipendenze
 npm install --production
@@ -44,9 +55,10 @@ npm install --production
 npx prisma generate
 
 # Riavvia applicazione
-pm2 restart price-manager 2>/dev/null || pm2 start npm --name "price-manager" -- start
+echo "🔄 Riavvio PM2..."
+pm2 restart price-manager --update-env || pm2 start npm --name "price-manager" -- start
 
-echo "✅ Deploy completato!"
+echo "✅ Deploy completato sul server!"
 REMOTE
 
 echo ""

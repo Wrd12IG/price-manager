@@ -44,8 +44,6 @@ import {
 import { toast } from 'react-toastify';
 import './ProductFilters.css';
 
-import api from '../utils/api';
-
 interface FilterRule {
     id: number;
     nome: string;

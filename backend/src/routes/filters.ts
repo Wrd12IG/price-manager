@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { productFilterController } from '../controllers/ProductFilterController';
+import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// Protezione multi-tenant
+router.use(authMiddleware);
 
 // ============================================
 // ROUTES PER REGOLE DI FILTRO

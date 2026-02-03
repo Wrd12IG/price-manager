@@ -27,8 +27,10 @@ import {
 } from '@mui/material';
 import {
     Add as AddIcon,
-    Delete as DeleteIcon
+    Delete as DeleteIcon,
+    TrendingUp as TrendingUpIcon,
 } from '@mui/icons-material';
+import { Card, CardContent } from '@mui/material';
 import api from '../utils/api';
 import { toast } from 'react-toastify';
 
@@ -84,6 +86,12 @@ export default function Pricing() {
         markupPercentuale: 30,
         markupFisso: 0,
         costoSpedizione: 0,
+    });
+
+    const [calcData, setCalcData] = useState({
+        purchase: 100,
+        markupP: 30,
+        extra: 0
     });
 
     useEffect(() => {
@@ -236,9 +244,66 @@ export default function Pricing() {
                     >
                         Nuova Regola
                     </Button>
-
                 </Box>
             </Box>
+
+            {/* Profit Calculator Card */}
+            <Card sx={{ mb: 4, borderRadius: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+                <CardContent sx={{ p: 3 }}>
+                    <Typography variant="h6" fontWeight={700} gutterBottom display="flex" alignItems="center" gap={1}>
+                        <TrendingUpIcon /> Simulatore di Profitto
+                    </Typography>
+                    <Grid container spacing={3} alignItems="flex-end">
+                        <Grid item xs={12} md={3}>
+                            <Typography variant="caption" sx={{ opacity: 0.8 }}>Prezzo Acquisto (€)</Typography>
+                            <TextField
+                                fullWidth
+                                variant="standard"
+                                type="number"
+                                value={calcData.purchase}
+                                onChange={(e) => setCalcData({ ...calcData, purchase: parseFloat(e.target.value) })}
+                                sx={{ input: { color: 'white', fontSize: '1.2rem', fontWeight: 600 }, '& .MuiInput-underline:before': { borderBottomColor: 'rgba(255,255,255,0.3)' } }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <Typography variant="caption" sx={{ opacity: 0.8 }}>Markup (%)</Typography>
+                            <TextField
+                                fullWidth
+                                variant="standard"
+                                type="number"
+                                value={calcData.markupP}
+                                onChange={(e) => setCalcData({ ...calcData, markupP: parseFloat(e.target.value) })}
+                                sx={{ input: { color: 'white', fontSize: '1.2rem', fontWeight: 600 }, '& .MuiInput-underline:before': { borderBottomColor: 'rgba(255,255,255,0.3)' } }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={2}>
+                            <Typography variant="caption" sx={{ opacity: 0.8 }}>Fisso + Sped (€)</Typography>
+                            <TextField
+                                fullWidth
+                                variant="standard"
+                                type="number"
+                                value={calcData.extra}
+                                onChange={(e) => setCalcData({ ...calcData, extra: parseFloat(e.target.value) })}
+                                sx={{ input: { color: 'white', fontSize: '1.2rem', fontWeight: 600 }, '& .MuiInput-underline:before': { borderBottomColor: 'rgba(255,255,255,0.3)' } }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={5}>
+                            <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Box>
+                                    <Typography variant="caption" display="block">Prezzo Vendita Suggerito</Typography>
+                                    <Typography variant="h4" fontWeight={800}>€ {((calcData.purchase * (1 + calcData.markupP / 100)) + calcData.extra).toFixed(2)}</Typography>
+                                </Box>
+                                <Box textAlign="right">
+                                    <Typography variant="caption" display="block">Margine Lordo</Typography>
+                                    <Typography variant="h6" fontWeight={700} color="#00ff88">
+                                        +€ {(((calcData.purchase * (1 + calcData.markupP / 100)) + calcData.extra) - calcData.purchase).toFixed(2)}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        </Grid>
+                    </Grid>
+                </CardContent>
+            </Card>
 
             <TableContainer component={Paper}>
                 <Table>
@@ -451,6 +516,6 @@ export default function Pricing() {
                 </DialogActions>
             </Dialog>
 
-        </Box>
+        </Box >
     );
 }

@@ -17,7 +17,9 @@ import {
     TableRow,
     CircularProgress,
     Alert,
-    SelectChangeEvent
+    SelectChangeEvent,
+    Autocomplete,
+    TextField
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
 import api from '../utils/api';
@@ -35,17 +37,18 @@ interface CampoStandard {
 }
 
 export default function Mappature() {
+    console.log('🚀 Mappature Component Loaded - v1.4.1 (Fixed Imports & FreeSolo)');
+
+    // State Definitions
     const [fornitori, setFornitori] = useState<Fornitore[]>([]);
     const [selectedFornitoreId, setSelectedFornitoreId] = useState<string>('');
-
     const [campiStandard, setCampiStandard] = useState<CampoStandard[]>([]);
     const [colonneFile, setColonneFile] = useState<string[]>([]);
     const [mappatura, setMappatura] = useState<Record<string, string>>({});
-
     const [loading, setLoading] = useState(false);
     const [loadingDati, setLoadingDati] = useState(false);
 
-    // Carica lista fornitori e campi standard all'avvio
+    // Initial Load
     useEffect(() => {
         const init = async () => {
             try {
@@ -63,37 +66,51 @@ export default function Mappature() {
         init();
     }, []);
 
-    // Quando cambia fornitore, carica colonne file e mappatura esistente
+    // Fetch Supplier Data
+    const fetchDatiFornitore = async (id: string) => {
+        setLoadingDati(true);
+        try {
+            // 1. Load file columns (Preview)
+            try {
+                const resPreview = await api.get(`/fornitori/${id}/preview?rows=1`);
+                const headers = resPreview.data?.data?.headers || [];
+                setColonneFile(headers);
+            } catch (previewErr) {
+                console.warn("Preview failed (offline file?)", previewErr);
+                setColonneFile([]);
+            }
+
+            // 2. Load saved mapping
+            try {
+                const resMappatura = await api.get(`/mappature/campi/${id}`);
+                setMappatura(resMappatura.data?.data || {});
+            } catch (mapErr: any) {
+                if (mapErr.response && mapErr.response.status === 404) {
+                    setMappatura({});
+                } else {
+                    throw mapErr;
+                }
+            }
+
+        } catch (error) {
+            console.error(error);
+            toast.error('Errore generico caricamento dati.');
+        } finally {
+            setLoadingDati(false);
+        }
+    };
+
+    // Trigger Fetch on Supplier Change
     useEffect(() => {
         if (!selectedFornitoreId) {
             setColonneFile([]);
             setMappatura({});
             return;
         }
-
-        const loadFornitoreData = async () => {
-            setLoadingDati(true);
-            try {
-                // 1. Carica colonne dal file (usando preview)
-                const resPreview = await api.get(`/fornitori/${selectedFornitoreId}/preview?rows=1`);
-                setColonneFile(resPreview.data.data.headers || []);
-
-                // 2. Carica mappatura salvata
-                const resMappatura = await api.get(`/mappature/campi/${selectedFornitoreId}`);
-                setMappatura(resMappatura.data.data || {});
-
-            } catch (error) {
-                console.error(error);
-                toast.error('Errore caricamento dati fornitore. Verifica che il file sia accessibile.');
-                setColonneFile([]);
-            } finally {
-                setLoadingDati(false);
-            }
-        };
-
-        loadFornitoreData();
+        fetchDatiFornitore(selectedFornitoreId);
     }, [selectedFornitoreId]);
 
+    // Handlers
     const handleMappaturaChange = (campoSistema: string, colonnaFile: string) => {
         setMappatura(prev => ({
             ...prev,
@@ -103,7 +120,6 @@ export default function Mappature() {
 
     const handleSave = async () => {
         if (!selectedFornitoreId) return;
-
         setLoading(true);
         try {
             await api.post(`/mappature/campi/${selectedFornitoreId}`, mappatura);
@@ -116,12 +132,10 @@ export default function Mappature() {
         }
     };
 
-    // Funzione per auto-mappare (euristica semplice)
     const autoMap = () => {
         const newMap = { ...mappatura };
-        campiStandard.forEach(campo => {
+        (campiStandard || []).forEach(campo => {
             if (!newMap[campo.key]) {
-                // Cerca una colonna che contenga il nome del campo (case insensitive)
                 const match = colonneFile.find(col =>
                     col.toLowerCase().includes(campo.key.toLowerCase()) ||
                     col.toLowerCase().includes(campo.label.split(' ')[0].toLowerCase())
@@ -135,6 +149,15 @@ export default function Mappature() {
         toast.info('Auto-mappatura applicata');
     };
 
+    const resetCache = () => {
+        setMappatura({});
+        setColonneFile([]);
+        if (selectedFornitoreId) {
+            fetchDatiFornitore(selectedFornitoreId);
+        }
+        toast.info('Cache resettata e dati ricaricati.');
+    };
+
     return (
         <Box>
             <Typography variant="h4" fontWeight={700} gutterBottom>
@@ -142,6 +165,11 @@ export default function Mappature() {
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
                 Associa le colonne del file del fornitore ai campi del sistema.
+                {colonneFile.length === 0 && selectedFornitoreId && (
+                    <span style={{ color: 'orange', display: 'block', marginTop: '8px' }}>
+                        ⚠️ File offline o non leggibile. Puoi comunque digitare manualmente i nomi delle colonne.
+                    </span>
+                )}
             </Typography>
 
             <Paper sx={{ p: 3, mb: 4 }}>
@@ -163,9 +191,14 @@ export default function Mappature() {
                     </Grid>
                     <Grid item xs={12} md={6}>
                         {selectedFornitoreId && (
-                            <Button variant="outlined" onClick={autoMap} disabled={loadingDati || (colonneFile?.length || 0) === 0}>
-                                Auto-Mappa Campi
-                            </Button>
+                            <Box sx={{ display: 'flex', gap: 2 }}>
+                                <Button variant="outlined" color="warning" onClick={resetCache} disabled={loadingDati}>
+                                    Reset & Ricarica
+                                </Button>
+                                <Button variant="outlined" onClick={autoMap} disabled={loadingDati || (colonneFile?.length || 0) === 0}>
+                                    Auto-Mappa Campi
+                                </Button>
+                            </Box>
                         )}
                     </Grid>
                 </Grid>
@@ -173,109 +206,77 @@ export default function Mappature() {
 
             {selectedFornitoreId && (
                 <>
-                    {/* Riepilogo Mappature Salvate */}
-                    {Object.keys(mappatura).length > 0 && (
-                        <Paper sx={{ p: 3, mb: 4, bgcolor: '#f5f5f5', border: '1px solid #e0e0e0' }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                                <Typography variant="h6" color="text.primary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <SaveIcon fontSize="small" sx={{ color: '#FFD700' }} /> Mappature Attive
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                    Queste impostazioni sono salvate nel database
-                                </Typography>
-                            </Box>
-                            <Grid container spacing={2}>
-                                {campiStandard.filter(c => mappatura[c.key]).map((campo) => (
-                                    <Grid item xs={12} sm={6} md={4} lg={3} key={campo.key}>
-                                        <Paper elevation={0} sx={{ p: 1.5, bgcolor: 'white', border: '1px solid #e0e0e0', borderRadius: 1 }}>
-                                            <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5 }}>
-                                                {campo.label}
-                                            </Typography>
-                                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                                                {mappatura[campo.key]}
-                                            </Typography>
-                                        </Paper>
-                                    </Grid>
-                                ))}
-                            </Grid>
-                        </Paper>
-                    )}
-
-                    {loadingDati ? (
+                    {loadingDati && (
                         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
                             <CircularProgress />
                         </Box>
-                    ) : (
+                    )}
+
+                    {!loadingDati && (
                         <>
-                            {(colonneFile?.length || 0) === 0 && (
-                                <Alert severity="warning" sx={{ mb: 3 }}>
-                                    Attenzione: Impossibile recuperare le colonne dal file del fornitore.
-                                    Puoi comunque visualizzare le mappature salvate sopra, ma per modificarle è necessario che il file sia accessibile.
+                            {campiStandard.length === 0 && (
+                                <Alert severity="error" sx={{ mb: 3 }}>
+                                    Errore critico: Impossibile caricare la lista dei campi standard dal sistema. Ricarica la pagina.
                                 </Alert>
                             )}
 
-                            {(colonneFile?.length || 0) > 0 && (
-                                <TableContainer component={Paper}>
-                                    <Table>
-                                        <TableHead>
-                                            <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                                                <TableCell sx={{ fontWeight: 600, width: '40%' }}>Campo Sistema</TableCell>
-                                                <TableCell sx={{ fontWeight: 600, width: '60%' }}>Colonna File Fornitore</TableCell>
+                            {/* TableContainer is always rendered to avoid "empty page" perception */}
+                            <TableContainer component={Paper}>
+                                <Table>
+                                    <TableHead>
+                                        <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                                            <TableCell sx={{ fontWeight: 600, width: '40%' }}>Campo Sistema</TableCell>
+                                            <TableCell sx={{ fontWeight: 600, width: '60%' }}>
+                                                Colonna File (Seleziona o Scrivi)
+                                            </TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {campiStandard?.map((campo) => (
+                                            <TableRow key={campo.key} hover selected={!!mappatura[campo.key]}>
+                                                <TableCell>
+                                                    <Box>
+                                                        <Typography variant="subtitle2">
+                                                            {campo.label} {campo.required && <span style={{ color: 'red' }}>*</span>}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {campo.key}
+                                                        </Typography>
+                                                    </Box>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Autocomplete
+                                                        freeSolo
+                                                        options={colonneFile}
+                                                        value={mappatura[campo.key] || ''}
+                                                        onInputChange={(_, newInputValue) => {
+                                                            handleMappaturaChange(campo.key, newInputValue);
+                                                        }}
+                                                        renderInput={(params) => (
+                                                            <TextField
+                                                                {...params}
+                                                                placeholder={colonneFile.length === 0 ? "Digita nome colonna..." : "Seleziona..."}
+                                                                size="small"
+                                                                variant="outlined"
+                                                            />
+                                                        )}
+                                                    />
+                                                </TableCell>
                                             </TableRow>
-                                        </TableHead>
-                                        <TableBody>
-                                            {campiStandard?.map((campo) => (
-                                                <TableRow key={campo.key} hover selected={!!mappatura[campo.key]}>
-                                                    <TableCell>
-                                                        <Box>
-                                                            <Typography variant="subtitle2">
-                                                                {campo.label} {campo.required && <span style={{ color: 'red' }}>*</span>}
-                                                            </Typography>
-                                                            <Typography variant="caption" color="text.secondary">
-                                                                {campo.key}
-                                                            </Typography>
-                                                        </Box>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <FormControl fullWidth size="small">
-                                                            <Select
-                                                                value={mappatura[campo.key] || ''}
-                                                                onChange={(e) => handleMappaturaChange(campo.key, e.target.value)}
-                                                                displayEmpty
-                                                            >
-                                                                <MenuItem value="">
-                                                                    <em>Non mappato</em>
-                                                                </MenuItem>
-                                                                {/* Opzione salvata (anche se non presente nel file attuale) */}
-                                                                {mappatura[campo.key] && !colonneFile.includes(mappatura[campo.key]) && (
-                                                                    <MenuItem value={mappatura[campo.key]}>
-                                                                        {mappatura[campo.key]} (Salvato - Non trovato nel file)
-                                                                    </MenuItem>
-                                                                )}
-                                                                {colonneFile?.map((col) => (
-                                                                    <MenuItem key={col} value={col}>
-                                                                        {col}
-                                                                    </MenuItem>
-                                                                ))}
-                                                            </Select>
-                                                        </FormControl>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                    <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end' }}>
-                                        <Button
-                                            variant="contained"
-                                            startIcon={<SaveIcon sx={{ color: '#FFD700' }} />}
-                                            onClick={handleSave}
-                                            disabled={loading}
-                                        >
-                                            Salva Mappatura
-                                        </Button>
-                                    </Box>
-                                </TableContainer>
-                            )}
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                                <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end' }}>
+                                    <Button
+                                        variant="contained"
+                                        startIcon={<SaveIcon sx={{ color: '#FFD700' }} />}
+                                        onClick={handleSave}
+                                        disabled={loading}
+                                    >
+                                        Salva Mappatura
+                                    </Button>
+                                </Box>
+                            </TableContainer>
                         </>
                     )}
                 </>

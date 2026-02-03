@@ -7,7 +7,11 @@ import {
     getOptions
 } from '../controllers/markup.controller';
 
+import { authMiddleware } from '../middleware/auth.middleware';
+
 const router = Router();
+
+router.use(authMiddleware);
 
 router.get('/', getRegole);
 router.post('/', createRegola);

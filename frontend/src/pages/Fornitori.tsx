@@ -176,10 +176,10 @@ export default function Fornitori() {
     const handleTestConnection = async (id: number) => {
         try {
             const response = await api.post(`/fornitori/${id}/test-connection`);
-            if (response.data.data.success) {
+            if (response.data?.data?.success) {
                 toast.success('Connessione riuscita!');
             } else {
-                toast.error('Connessione fallita');
+                toast.error('Connessione fallita: ' + (response.data?.data?.error || 'Verifica i parametri'));
             }
         } catch (error) {
             toast.error('Errore nel test della connessione');
@@ -265,11 +265,14 @@ export default function Fornitori() {
         const toastId = toast.loading('Aggiornamento massivo in corso... attendere, non chiudere la pagina.');
         try {
             const response = await api.post('/fornitori/import-all');
-            const { results, totalErrors } = response.data.data;
+            const responseData = response.data?.data || {};
+            const results = responseData.results || [];
+            const totalErrors = responseData.totalErrors || 0;
 
             // Formatta messaggio
-            const successCount = results.filter((r: any) => r.success).length;
-            const failCount = (results?.length || 0) - successCount;
+            const safeResults = results || [];
+            const successCount = safeResults.filter((r: any) => r.success).length;
+            const failCount = safeResults.length - successCount;
 
             toast.update(toastId, {
                 render: `Aggiornamento completato! Successi: ${successCount}, Falliti: ${failCount}.`,
@@ -310,14 +313,6 @@ export default function Fornitori() {
                     </Typography>
                 </Box>
                 <Box>
-                    <Button
-                        variant="outlined"
-                        startIcon={<CloudDownloadIcon />}
-                        onClick={handleOpenImportAll}
-                        sx={{ mr: 2, borderColor: '#333', color: '#333', '&:hover': { borderColor: '#000', backgroundColor: '#f5f5f5' } }}
-                    >
-                        Aggiorna Tutto
-                    </Button>
                     <Button
                         variant="contained"
                         startIcon={<AddIcon sx={{ color: '#FFD700' }} />}
@@ -487,6 +482,7 @@ export default function Fornitori() {
                             fullWidth
                         >
                             <MenuItem value="CSV">CSV</MenuItem>
+                            <MenuItem value="TXT">TXT</MenuItem>
                             <MenuItem value="Excel">Excel</MenuItem>
                             <MenuItem value="XML">XML</MenuItem>
                             <MenuItem value="JSON">JSON</MenuItem>

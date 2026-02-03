@@ -20,13 +20,20 @@ import {
     DialogTitle,
     DialogContent,
     DialogContentText,
-    DialogActions
+    DialogActions,
+    Grid
 } from '@mui/material';
 import {
     Search as SearchIcon,
     Merge as MergeIcon,
-    Refresh as RefreshIcon
+    Refresh as RefreshIcon,
+    FilterAlt as FilterIcon,
+    Image as ImageIcon,
+    CheckCircle as CheckIcon,
+    History as HistoryIcon,
+    Memory as MemoryIcon
 } from '@mui/icons-material';
+import { FormControl, InputLabel, Select, MenuItem, FormControlLabel, Switch } from '@mui/material';
 import api from '../utils/api';
 import { toast } from 'react-toastify';
 
@@ -40,19 +47,22 @@ interface MasterProduct {
     id: number;
     eanGtin: string;
     skuSelezionato: string;
+    partNumber: string | null;
     nomeProdotto: string;
     prezzoAcquistoMigliore: number;
     prezzoVenditaCalcolato: number;
     quantitaTotaleAggregata: number;
-    marca: string | null;
-    categoriaEcommerce: string | null;
+    marca: { id: number; nome: string } | null;
+    categoria: { id: number; nome: string } | null;
     fornitoreSelezionato: {
+        id: number;
         nomeFornitore: string;
     };
     datiIcecat?: {
         descrizioneLunga: string | null;
         urlImmaginiJson: string | null;
     } | null;
+    outputShopify?: any | null;
     stockPerFornitore?: StockPerFornitore[];
     updatedAt: string;
 }
@@ -69,9 +79,27 @@ export default function MasterFile() {
     const [totalRows, setTotalRows] = useState(0);
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Advanced Filters State
+    const [filterOptions, setFilterOptions] = useState<{
+        marchi: any[],
+        categorie: any[],
+        fornitori: any[]
+    }>({ marchi: [], categorie: [], fornitori: [] });
+
+    const [selectedFilters, setSelectedFilters] = useState({
+        marchioId: '',
+        categoriaId: '',
+        fornitoreId: '',
+        soloDisponibili: false
+    });
+
     useEffect(() => {
         fetchProducts();
-    }, [page, rowsPerPage, searchTerm]);
+    }, [page, rowsPerPage, searchTerm, selectedFilters]);
+
+    useEffect(() => {
+        fetchFilterOptions();
+    }, []);
 
     const fetchProducts = async () => {
         setLoading(true);
@@ -80,7 +108,8 @@ export default function MasterFile() {
                 params: {
                     page: page + 1,
                     limit: rowsPerPage,
-                    search: searchTerm
+                    search: searchTerm,
+                    ...selectedFilters
                 }
             });
             setProducts(response.data?.data || []);
@@ -90,6 +119,15 @@ export default function MasterFile() {
             toast.error('Errore caricamento catalogo');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchFilterOptions = async () => {
+        try {
+            const response = await api.get('/master-file/filters');
+            setFilterOptions(response.data.data);
+        } catch (error) {
+            console.error(error);
         }
     };
 
@@ -214,21 +252,82 @@ export default function MasterFile() {
             </Dialog>
 
             <Paper sx={{ mb: 4, p: 2 }}>
-                <TextField
-                    fullWidth
-                    variant="outlined"
-                    placeholder="Cerca per Nome, EAN, SKU o Marca..."
-                    value={searchTerm}
-                    onChange={handleSearchChange}
-                    InputProps={{
-                        startAdornment: (
-                            <InputAdornment position="start">
-                                <SearchIcon color="action" />
-                            </InputAdornment>
-                        ),
-                    }}
-                    size="small"
-                />
+                <Grid container spacing={2} alignItems="center">
+                    <Grid item xs={12} md={4}>
+                        <TextField
+                            fullWidth
+                            variant="outlined"
+                            placeholder="Cerca per Nome, EAN, SKU..."
+                            value={searchTerm}
+                            onChange={handleSearchChange}
+                            InputProps={{
+                                startAdornment: (
+                                    <InputAdornment position="start">
+                                        <SearchIcon color="action" />
+                                    </InputAdornment>
+                                ),
+                            }}
+                            size="small"
+                        />
+                    </Grid>
+                    <Grid item xs={12} md={2}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>Marca</InputLabel>
+                            <Select
+                                value={selectedFilters.marchioId}
+                                label="Marca"
+                                onChange={(e) => setSelectedFilters({ ...selectedFilters, marchioId: e.target.value as string })}
+                            >
+                                <MenuItem value="">Tutte</MenuItem>
+                                {filterOptions.marchi.map(m => (
+                                    <MenuItem key={m.id} value={m.id}>{m.nome}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Grid>
+                    <Grid item xs={12} md={2}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>Categoria</InputLabel>
+                            <Select
+                                value={selectedFilters.categoriaId}
+                                label="Categoria"
+                                onChange={(e) => setSelectedFilters({ ...selectedFilters, categoriaId: e.target.value as string })}
+                            >
+                                <MenuItem value="">Tutte</MenuItem>
+                                {filterOptions.categorie.map(c => (
+                                    <MenuItem key={c.id} value={c.id}>{c.nome}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Grid>
+                    <Grid item xs={12} md={2}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>Fornitore</InputLabel>
+                            <Select
+                                value={selectedFilters.fornitoreId}
+                                label="Fornitore"
+                                onChange={(e) => setSelectedFilters({ ...selectedFilters, fornitoreId: e.target.value as string })}
+                            >
+                                <MenuItem value="">Tutti</MenuItem>
+                                {filterOptions.fornitori.map(f => (
+                                    <MenuItem key={f.id} value={f.id}>{f.nome}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Grid>
+                    <Grid item xs={12} md={2}>
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={selectedFilters.soloDisponibili}
+                                    onChange={(e) => setSelectedFilters({ ...selectedFilters, soloDisponibili: e.target.checked })}
+                                    color="primary"
+                                />
+                            }
+                            label="Disponibili"
+                        />
+                    </Grid>
+                </Grid>
             </Paper>
 
             <Paper>
@@ -236,12 +335,12 @@ export default function MasterFile() {
                     <Table>
                         <TableHead>
                             <TableRow sx={{ backgroundColor: '#f9fafb' }}>
-                                <TableCell sx={{ fontWeight: 600 }}>EAN / SKU</TableCell>
+                                <TableCell sx={{ fontWeight: 600 }}>Info Prodotto</TableCell>
+                                <TableCell sx={{ fontWeight: 600 }}>Catalog Data</TableCell>
                                 <TableCell sx={{ fontWeight: 600 }}>Miglior Fornitore</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }}>Prezzo Acquisto</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }}>Prezzo Vendita</TableCell>
+                                <TableCell sx={{ fontWeight: 600 }}>Prezzi (Acq. / Vend.)</TableCell>
                                 <TableCell sx={{ fontWeight: 600 }}>Stock Totale</TableCell>
-                                <TableCell sx={{ fontWeight: 600 }}>Ultimo Agg.</TableCell>
+                                <TableCell sx={{ fontWeight: 600 }}>Stato AI</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
@@ -263,10 +362,45 @@ export default function MasterFile() {
                                 products?.map((product) => (
                                     <TableRow key={product.id} hover>
                                         <TableCell>
-                                            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                                                <Typography variant="body2">{product.eanGtin}</Typography>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                                {product.datiIcecat?.urlImmaginiJson ? (
+                                                    <Box
+                                                        component="img"
+                                                        src={JSON.parse(product.datiIcecat.urlImmaginiJson)[0]}
+                                                        sx={{ width: 40, height: 40, borderRadius: 1, objectFit: 'contain', border: '1px solid #eee' }}
+                                                    />
+                                                ) : (
+                                                    <Box sx={{ width: 40, height: 40, borderRadius: 1, backgroundColor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <ImageIcon sx={{ color: '#ccc', fontSize: 20 }} />
+                                                    </Box>
+                                                )}
+                                                <Box sx={{ maxWidth: 300 }}>
+                                                    <Typography variant="body2" fontWeight={600} noWrap sx={{ display: 'block' }}>
+                                                        {product.nomeProdotto || 'Nessun nome'}
+                                                    </Typography>
+                                                    <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                                                        <Typography variant="caption" color="primary" sx={{ border: '1px solid', borderColor: 'primary.light', px: 0.5, borderRadius: 0.5 }}>
+                                                            EAN: {product.eanGtin}
+                                                        </Typography>
+                                                        {product.partNumber && (
+                                                            <Typography variant="caption" sx={{ color: '#d97706', border: '1px solid #fcd34d', px: 0.5, borderRadius: 0.5, backgroundColor: '#fffbeb' }}>
+                                                                PN: {product.partNumber}
+                                                            </Typography>
+                                                        )}
+                                                        <Typography variant="caption" sx={{ color: 'text.secondary', backgroundColor: '#eee', px: 0.5, borderRadius: 0.5 }}>
+                                                            SKU: {product.skuSelezionato}
+                                                        </Typography>
+                                                    </Box>
+                                                </Box>
+                                            </Box>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Box>
+                                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600 }}>
+                                                    {product.marca?.nome || 'N/D'}
+                                                </Typography>
                                                 <Typography variant="caption" color="text.secondary">
-                                                    SKU: {product.skuSelezionato}
+                                                    {product.categoria?.nome || 'N/D'}
                                                 </Typography>
                                             </Box>
                                         </TableCell>
@@ -283,39 +417,30 @@ export default function MasterFile() {
                                             />
                                         </TableCell>
                                         <TableCell>
-                                            <Typography variant="body2" fontWeight={600}>
-                                                € {product.prezzoAcquistoMigliore.toFixed(2)}
-                                            </Typography>
-                                        </TableCell>
-                                        <TableCell>
-                                            {(() => {
-                                                const hasMarkup = product.prezzoVenditaCalcolato > product.prezzoAcquistoMigliore;
-                                                const markupPercent = hasMarkup
-                                                    ? ((product.prezzoVenditaCalcolato - product.prezzoAcquistoMigliore) / product.prezzoAcquistoMigliore * 100).toFixed(1)
-                                                    : 0;
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                                                    Acq: € {product.prezzoAcquistoMigliore.toFixed(2)}
+                                                </Typography>
+                                                {(() => {
+                                                    const hasMarkup = product.prezzoVenditaCalcolato > product.prezzoAcquistoMigliore;
+                                                    const markupPercent = hasMarkup
+                                                        ? ((product.prezzoVenditaCalcolato - product.prezzoAcquistoMigliore) / product.prezzoAcquistoMigliore * 100).toFixed(1)
+                                                        : 0;
 
-                                                return (
-                                                    <Tooltip title={hasMarkup ? `Markup applicato: +${markupPercent}%` : 'Nessun markup applicato'}>
-                                                        <Typography
-                                                            variant="body2"
-                                                            fontWeight={700}
-                                                            sx={{
-                                                                color: hasMarkup ? 'success.main' : 'text.primary',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: 0.5
-                                                            }}
-                                                        >
-                                                            € {product.prezzoVenditaCalcolato.toFixed(2)}
+                                                    return (
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                            <Typography variant="body2" fontWeight={700} color="success.main">
+                                                                € {product.prezzoVenditaCalcolato.toFixed(2)}
+                                                            </Typography>
                                                             {hasMarkup && (
-                                                                <Typography component="span" variant="caption" sx={{ color: 'success.light', fontWeight: 500 }}>
+                                                                <Typography variant="caption" sx={{ color: 'success.light', fontSize: '0.65rem' }}>
                                                                     (+{markupPercent}%)
                                                                 </Typography>
                                                             )}
-                                                        </Typography>
-                                                    </Tooltip>
-                                                );
-                                            })()}
+                                                        </Box>
+                                                    );
+                                                })()}
+                                            </Box>
                                         </TableCell>
                                         <TableCell>
                                             <Tooltip
@@ -371,9 +496,26 @@ export default function MasterFile() {
                                             </Tooltip>
                                         </TableCell>
                                         <TableCell>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {new Date(product.updatedAt).toLocaleDateString()}
-                                            </Typography>
+                                            <Box sx={{ display: 'flex', gap: 1 }}>
+                                                {product.datiIcecat ? (
+                                                    <Tooltip title="Dati Icecat Presenti">
+                                                        <CheckIcon sx={{ color: '#FFD700', fontSize: 18 }} />
+                                                    </Tooltip>
+                                                ) : (
+                                                    <Tooltip title="Nessun dato Icecat">
+                                                        <CheckIcon sx={{ color: '#eee', fontSize: 18 }} />
+                                                    </Tooltip>
+                                                )}
+                                                {product.outputShopify ? (
+                                                    <Tooltip title="Pronto per Shopify / AI Enriched">
+                                                        <MemoryIcon sx={{ color: 'success.main', fontSize: 18 }} />
+                                                    </Tooltip>
+                                                ) : (
+                                                    <Tooltip title="AI enrichment mancante">
+                                                        <MemoryIcon sx={{ color: '#eee', fontSize: 18 }} />
+                                                    </Tooltip>
+                                                )}
+                                            </Box>
                                         </TableCell>
                                     </TableRow>
                                 ))

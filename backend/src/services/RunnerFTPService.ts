@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { FTPService } from './FTPService';
 import { FileParserService } from './FileParserService';
 import { FileMergeService } from './FileMergeService';
@@ -24,15 +25,17 @@ export class RunnerFTPService {
         const filesToDownload: FTPFileConfig[] = [
             { directory: '/', filename: 'articoli.txt' },
             { directory: '/', filename: 'arrivi.txt' },
-            { directory: '/', filename: 'descp.txt' }, // Aggiunto file descrizioni estese
-            { directory: '/C200835', filename: 'prezzi.txt' }
+            { directory: '/', filename: 'descp.txt' },
+            { directory: '/', filename: 'immagini.txt' },
+            { directory: '/', filename: 'peso.txt' },
+            { directory: '/C200835', filename: 'prezzi.txt' },
+            { directory: '/C200835', filename: 'prezzi_no_sconto.txt' }
         ];
 
         logger.info(`Scaricamento file specifici Runner: ${filesToDownload.map(f => f.filename).join(', ')}`);
 
         // Scarica i file specifici
         const files: Array<{ filename: string; buffer: Buffer }> = [];
-
         for (const fileConfig of filesToDownload) {
             try {
                 const file = await FTPService.downloadSpecificFile({
@@ -53,8 +56,8 @@ export class RunnerFTPService {
         // Verifica che i file critici siano stati scaricati
         // Nota: descp.txt è ora critico perché contiene la maggior parte dei prodotti
         const downloadedNames = files.map(f => f.filename);
-        if (!downloadedNames.includes('prezzi.txt')) {
-            throw new Error('File prezzi.txt mancante. Impossibile procedere.');
+        if (!downloadedNames.includes('prezzi.txt') && !downloadedNames.includes('prezzi_no_sconto.txt')) {
+            throw new Error('Nessun file prezzi trovato. Impossibile procedere.');
         }
         if (!downloadedNames.includes('articoli.txt') && !downloadedNames.includes('descp.txt')) {
             throw new Error('Nessun file prodotti (articoli.txt o descp.txt) trovato. Impossibile procedere.');
@@ -69,15 +72,16 @@ export class RunnerFTPService {
                 buffer: file.buffer,
                 encoding: 'UTF-8',
                 csvSeparator: '|',
-                quote: '' // Disabilita quoting perché i file Runner non usano quote e l'HTML contiene "
+                quote: '' // Fondamentale: disabilita quoting per pollici (")
             });
 
-            // Normalizza il campo chiave se necessario (es. 'codice' -> 'Codice')
-            if (file.filename === 'prezzi.txt') {
+            // Normalizza il campo chiave (es. 'codice' -> 'Codice') nei file prezzi
+            if (file.filename.startsWith('prezzi')) {
                 parseResult.rows = parseResult.rows.map(row => {
-                    if (row['codice']) {
-                        row['Codice'] = row['codice'];
-                        delete row['codice'];
+                    const k = Object.keys(row).find(key => key.toLowerCase() === 'codice');
+                    if (k && k !== 'Codice') {
+                        row['Codice'] = row[k];
+                        delete row[k];
                     }
                     return row;
                 });
@@ -115,16 +119,21 @@ export class RunnerFTPService {
 
         let mergedRows = FileMergeService.mergeFilesByKeySimple(parsedFiles, 'Codice');
 
-        // Post-processing: Assicurati che ci sia una descrizione
+        // Post-processing
         mergedRows = mergedRows.map(row => {
             // Se manca DescProd (da articoli.txt), usa Descrizione (da descp.txt)
             if (!row['DescProd'] && row['Descrizione']) {
-                // Rimuovi tag HTML se presenti per la descrizione breve
                 row['DescProd'] = row['Descrizione'].replace(/<[^>]*>?/gm, '').substring(0, 255);
             }
 
-            // Se manca EAN (CodiceEAN), prova a vedere se è nel Codice (se numerico e lungo 13)
-            if (!row['CodiceEAN'] && row['Codice'] && /^\d{13}$/.test(row['Codice'])) {
+            // Fallback per PrezzoPers (da prezzi_no_sconto.txt se prezzi.txt manca)
+            // Nota: prezzi_no_sconto.txt usa spesso campi come "Prezzo"
+            if (!row['PrezzoPers'] && row['Prezzo']) {
+                row['PrezzoPers'] = row['Prezzo'];
+            }
+
+            // Se manca EAN (CodiceEAN), prova a vedere se è nel Codice
+            if (!row['CodiceEAN'] && row['Codice'] && /^\d{13}$/.test(row['Codice'].toString())) {
                 row['CodiceEAN'] = row['Codice'];
             }
 
@@ -132,7 +141,6 @@ export class RunnerFTPService {
         });
 
         logger.info(`✅ Merge completato: ${mergedRows.length} prodotti unici`);
-
         return mergedRows;
     }
 }

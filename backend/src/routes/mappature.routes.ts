@@ -5,10 +5,15 @@ import {
     saveMappaturaFornitore
 } from '../controllers/mappature.controller';
 
+import { authMiddleware } from '../middleware/auth.middleware';
+
 const router = Router();
 
 // Campi
 router.get('/campi/standard', getCampiStandard);
+
+router.use(authMiddleware);
+
 router.get('/campi/:fornitoreId', getMappaturaFornitore);
 router.post('/campi/:fornitoreId', saveMappaturaFornitore);
 

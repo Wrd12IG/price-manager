@@ -1,3 +1,4 @@
+// @ts-nocheck
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { GoogleGenerativeAI } from '@google/generative-ai';

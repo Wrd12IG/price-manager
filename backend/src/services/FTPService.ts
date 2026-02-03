@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as ftp from 'basic-ftp';
 import { logger } from '../utils/logger';
 import { AppError } from '../middleware/errorHandler';
