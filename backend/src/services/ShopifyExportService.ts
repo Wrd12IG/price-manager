@@ -2,6 +2,7 @@
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AIMetafieldService } from './AIMetafieldService';
+import { EnhancedMetafieldService } from './EnhancedMetafieldService';
 
 export class ShopifyExportService {
 
@@ -96,21 +97,51 @@ export class ShopifyExportService {
                 let bodyHtml = p.datiIcecat?.descrizioneLunga ? `<div class="product-description">${p.datiIcecat.descrizioneLunga}</div>` : `<p>${title}</p>`;
                 let specificheJson = p.datiIcecat?.specificheTecnicheJson || null;
 
-                // Genera Metafields
-                let metafieldsObj: Record<string, string> = {};
-                if (p.eanGtin) metafieldsObj['custom.ean'] = p.eanGtin;
-                metafieldsObj['custom.marca'] = vendor;
-                if (p.categoria?.nome) metafieldsObj['custom.categoria_prodotto'] = p.categoria.nome;
-                if (p.quantitaTotaleAggregata > 0) metafieldsObj['custom.info_disponibilita'] = `${p.quantitaTotaleAggregata} unità disponibili`;
-                if (descrizioneBreve) metafieldsObj['custom.descrizione_breve'] = descrizioneBreve;
-                if (p.datiIcecat?.descrizioneLunga) metafieldsObj['custom.descrizione_lunga'] = p.datiIcecat.descrizioneLunga;
+                // 🚀 USA IL NUOVO SERVIZIO AVANZATO PER GENERARE METAFIELDS COMPLETI
+                logger.info(`🔧 Generazione metafields avanzati per: ${p.eanGtin}`);
 
-                if (specificheJson) {
-                    try {
-                        const specs = JSON.parse(specificheJson);
-                        const tableHtml = this.generateSpecsTable(specs);
-                        if (tableHtml) metafieldsObj['custom.tabella_specifiche'] = tableHtml;
-                    } catch (e) { }
+                let metafieldsObj: Record<string, string> = {};
+
+                try {
+                    // Il servizio avanzato:
+                    // 1. Estrae da ICECAT se disponibile
+                    // 2. Completa con web scraping + AI se necessario
+                    // 3. Valida al 100% i dati trovati
+                    metafieldsObj = await EnhancedMetafieldService.generateCompleteMetafields(
+                        utenteId,
+                        {
+                            id: p.id,
+                            eanGtin: p.eanGtin,
+                            partNumber: p.partNumber,
+                            nomeProdotto: p.nomeProdotto,
+                            marchio: p.marchio,
+                            categoria: p.categoria,
+                            datiIcecat: p.datiIcecat
+                        }
+                    );
+
+                    logger.info(`✅ Generati ${Object.keys(metafieldsObj).length} metafields per ${p.eanGtin}`);
+
+                } catch (error: any) {
+                    logger.error(`❌ Errore generazione metafields avanzati per ${p.eanGtin}:`, error.message);
+
+                    // FALLBACK: Genera metafields base da ICECAT se disponibile
+                    if (p.eanGtin) metafieldsObj['custom.ean'] = p.eanGtin;
+                    metafieldsObj['custom.marca'] = vendor;
+                    if (p.categoria?.nome) metafieldsObj['custom.categoria_prodotto'] = p.categoria.nome;
+                    if (p.quantitaTotaleAggregata > 0) metafieldsObj['custom.info_disponibilita'] = `${p.quantitaTotaleAggregata} unità disponibili`;
+                    if (descrizioneBreve) metafieldsObj['custom.descrizione_breve'] = descrizioneBreve;
+                    if (p.datiIcecat?.descrizioneLunga) metafieldsObj['custom.descrizione_lunga'] = p.datiIcecat.descrizioneLunga;
+
+                    if (specificheJson) {
+                        try {
+                            const specs = JSON.parse(specificheJson);
+                            const tableHtml = this.generateSpecsTable(specs);
+                            if (tableHtml) metafieldsObj['custom.tabella_specifiche'] = tableHtml;
+                        } catch (e) {
+                            logger.warn(`Errore parsing specifiche per ${p.eanGtin}`);
+                        }
+                    }
                 }
 
                 const outputData = {
