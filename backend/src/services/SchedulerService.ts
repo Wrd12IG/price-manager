@@ -239,185 +239,214 @@ export class SchedulerService {
         jobProgressManager.startJob(jobId, 'Avvio Workflow Completo...');
 
         try {
-            // --- FASE 1: IMPORT LISTINI E AGGIORNAMENTO MASTER FILE ---
-            logger.info(`--- FASE 1 (Utente ${utenteId}): Aggiornamento Listini ---`);
-            const logFase1 = await this.createLog(utenteId, 'IMPORT_LISTINI');
-            const startFase1 = Date.now();
+            // --- TIMEOUT CHECK WRAPPER ---
+            const WORKFLOW_TIMEOUT_MS = 30 * 60 * 1000; // 30 minuti
 
-            const { ImportService } = await import('./ImportService');
-            const importResult = await ImportService.importAllListini(utenteId);
+            await new Promise<void>((resolve, reject) => {
+                const timeoutId = setTimeout(() => {
+                    reject(new Error(`⏳ Workflow andato in timeout dopo ${WORKFLOW_TIMEOUT_MS / 1000 / 60} minuti`));
+                }, WORKFLOW_TIMEOUT_MS);
 
-            const successCount = importResult.results.filter(r => r.success).length;
-            const failCount = importResult.results.filter(r => !r.success).length;
-            const totalImported = importResult.results.length;
+                // Esegui la logica originale all'interno della promise
+                (async () => {
+                    try {
+                        // --- FASE 1: IMPORT LISTINI E AGGIORNAMENTO MASTER FILE ---
+                        logger.info(`--- FASE 1 (Utente ${utenteId}): Aggiornamento Listini ---`);
+                        const logFase1 = await this.createLog(utenteId, 'IMPORT_LISTINI');
+                        const startFase1 = Date.now();
 
-            phases.push({
-                numero: 1,
-                nome: 'Aggiornamento Listini',
-                icona: failCount > 0 ? '⚠️' : '✅',
-                stato: failCount > 0 ? 'warning' : 'success',
-                dettagli: [
-                    `Fornitori processati: ${totalImported}`,
-                    `Successi: ${successCount}`,
-                    `Errori: ${failCount}`
-                ]
+                        const { ImportService } = await import('./ImportService');
+                        const importResult = await ImportService.importAllListini(utenteId);
+
+                        const successCount = importResult.results.filter(r => r.success).length;
+                        const failCount = importResult.results.filter(r => !r.success).length;
+                        const totalImported = importResult.results.length;
+
+                        phases.push({
+                            numero: 1,
+                            nome: 'Aggiornamento Listini',
+                            icona: failCount > 0 ? '⚠️' : '✅',
+                            stato: failCount > 0 ? 'warning' : 'success',
+                            dettagli: [
+                                `Fornitori processati: ${totalImported}`,
+                                `Successi: ${successCount}`,
+                                `Errori: ${failCount}`
+                            ]
+                        });
+
+                        jobProgressManager.updateProgress(jobId, 15, 'Listini aggiornati con successo');
+                        if (logFase1) await this.updateLog(logFase1.id, 'success', totalImported, failCount, importResult, startFase1);
+
+                        // --- FASE 1.5: CONSOLIDAMENTO MASTER FILE ---
+                        logger.info(`--- FASE 1.5 (Utente ${utenteId}): Consolidamento Master File ---`);
+                        const logFase1_5 = await this.createLog(utenteId, 'CONSOLIDAMENTO_MASTERFILE');
+                        const startFase1_5 = Date.now();
+
+                        const { MasterFileService } = await import('./MasterFileService');
+                        const consolidationResult = await MasterFileService.consolidaMasterFile(utenteId);
+
+                        phases.push({
+                            numero: 1.5,
+                            nome: 'Consolidamento Master File',
+                            icona: '🎯',
+                            stato: 'success',
+                            dettagli: [
+                                `Prodotti consolidati: ${consolidationResult.consolidated}`,
+                                `Prodotti filtrati: ${consolidationResult.filtered}`
+                            ]
+                        });
+
+                        jobProgressManager.updateProgress(jobId, 30, 'Catalogo consolidato e filtrato');
+                        if (logFase1_5) await this.updateLog(logFase1_5.id, 'success', consolidationResult.consolidated, 0, consolidationResult, startFase1_5);
+
+                        // --- FASE 1.7: RECUPERO IDENTITÀ ---
+                        logger.info(`--- FASE 1.7 (Utente ${utenteId}): Identificazione Prodotti ---`);
+                        const logFase1_7 = await this.createLog(utenteId, 'RECUPERO_IDENTITA');
+                        const startFase1_7 = Date.now();
+
+                        const { ProductIdentityService } = await import('./ProductIdentityService');
+                        const identityResult = await ProductIdentityService.recoverIdentities(utenteId);
+
+                        phases.push({
+                            numero: 1.7,
+                            nome: 'Identificazione Prodotti',
+                            icona: '🆔',
+                            stato: 'success',
+                            dettagli: [
+                                `Recuperati Icecat/AI: ${identityResult.recoveredIcecat + identityResult.recoveredAI}`,
+                                `Falliti: ${identityResult.failed}`
+                            ]
+                        });
+
+                        if (identityResult.recoveredIcecat > 0 || identityResult.recoveredAI > 0) {
+                            const { MarkupService } = await import('./MarkupService');
+                            await MarkupService.applicaRegolePrezzi(utenteId);
+                        }
+
+                        jobProgressManager.updateProgress(jobId, 45, 'Identità prodotti recuperate');
+                        if (logFase1_7) await this.updateLog(logFase1_7.id, 'success', identityResult.recoveredIcecat + identityResult.recoveredAI, identityResult.failed, identityResult, startFase1_7);
+
+
+                        // --- FASE 2: ARRICCHIMENTO DATI (ICECAT) ---
+                        logger.info(`--- FASE 2 (Utente ${utenteId}): Arricchimento Icecat ---`);
+                        const logFase2_Icecat = await this.createLog(utenteId, 'ARRICCHIMENTO_ICECAT');
+                        const startFase2_Icecat = Date.now();
+
+                        const { IcecatService } = await import('./IcecatService');
+                        const icecatConfig = await IcecatService.getConfig(utenteId);
+                        let icecatResult = { enriched: 0, skipped: 0, errors: 0, total: 0 };
+
+                        if (icecatConfig.configured) {
+                            icecatResult = await IcecatService.enrichMasterFile(utenteId);
+                        }
+
+                        phases.push({
+                            numero: 2,
+                            nome: 'Arricchimento Icecat',
+                            icona: icecatConfig.configured ? '✅' : '⏭️',
+                            stato: 'success',
+                            dettagli: [`Prodotti arricchiti: ${icecatResult.enriched}`]
+                        });
+
+                        jobProgressManager.updateProgress(jobId, 60, 'Dati Icecat arricchiti');
+                        if (logFase2_Icecat) await this.updateLog(logFase2_Icecat.id, 'success', icecatResult.enriched, icecatResult.errors, icecatResult, startFase2_Icecat);
+
+                        // --- FASE 2.5: OTTIMIZZAZIONE AI ---
+                        logger.info(`--- FASE 2.5 (Utente ${utenteId}): Ottimizzazione AI ---`);
+                        const logFase2_AI = await this.createLog(utenteId, 'OTTMIZZAZIONE_AI');
+                        const startFase2_AI = Date.now();
+
+                        const { AIEnrichmentService } = await import('./AIEnrichmentService');
+                        let totalEnriched = 0;
+                        for (let i = 0; i < 20; i++) {
+                            const batchResult = await AIEnrichmentService.processBatch(utenteId, 50, async (currentBatchSuccess) => {
+                                // Update log in real-time so the user sees progress in the UI
+                                if (logFase2_AI) {
+                                    const currentTotal = totalEnriched + currentBatchSuccess;
+                                    await this.updateLog(logFase2_AI.id, 'running', currentTotal, 0, { enriched: currentTotal }, startFase2_AI);
+                                }
+                            });
+
+                            totalEnriched += batchResult.success;
+
+                            if (batchResult.processed === 0) break;
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+
+                        phases.push({
+                            numero: 2.5,
+                            nome: 'Arricchimento AI Gemini',
+                            icona: '✅',
+                            stato: 'success',
+                            dettagli: [`Contenuti generati: ${totalEnriched}`]
+                        });
+
+                        jobProgressManager.updateProgress(jobId, 75, 'Ottimizzazione AI Gemini completata');
+                        if (logFase2_AI) await this.updateLog(logFase2_AI.id, 'success', totalEnriched, 0, { enriched: totalEnriched }, startFase2_AI);
+
+
+                        // --- FASE 3: GENERAZIONE EXPORT SHOPIFY ---
+                        logger.info(`--- FASE 3 (Utente ${utenteId}): Export Shopify ---`);
+                        const logFase3 = await this.createLog(utenteId, 'EXPORT_SHOPIFY');
+                        const startFase3 = Date.now();
+
+                        const { ShopifyExportService } = await import('./ShopifyExportService');
+                        // Passiamo jobId per aggiornare il progress della UI durante la generazione
+                        await ShopifyExportService.generateExport(utenteId, jobId);
+                        const exportData = await ShopifyService.getSyncProgress(utenteId);
+                        const exportCount = exportData.total;
+
+                        phases.push({
+                            numero: 3,
+                            nome: 'Generazione Export Shopify',
+                            icona: '✅',
+                            stato: 'success',
+                            dettagli: [`Prodotti in export: ${exportCount}`]
+                        });
+
+                        jobProgressManager.updateProgress(jobId, 85, 'Export Shopify generato');
+                        if (logFase3) await this.updateLog(logFase3.id, 'success', exportCount, 0, { readyForExport: exportCount }, startFase3);
+
+
+                        // --- FASE 4: SINCRONIZZAZIONE SHOPIFY ---
+                        logger.info(`--- FASE 4 (Utente ${utenteId}): Sync Shopify ---`);
+                        const logFase4 = await this.createLog(utenteId, 'SYNC_SHOPIFY');
+                        const startFase4 = Date.now();
+
+                        const syncResult = await ShopifyService.syncProducts(utenteId);
+
+                        phases.push({
+                            numero: 4,
+                            nome: 'Sincronizzazione Shopify',
+                            icona: syncResult.errors > 0 ? '⚠️' : '✅',
+                            stato: syncResult.errors > 0 ? 'warning' : 'success',
+                            dettagli: [
+                                `Totale: ${syncResult.total}`,
+                                `OK: ${syncResult.synced}`,
+                                `Errori: ${syncResult.errors}`
+                            ]
+                        });
+
+                        jobProgressManager.updateProgress(jobId, 95, 'Sincronizzazione Shopify completata');
+                        if (logFase4) await this.updateLog(logFase4.id, syncResult.errors > 0 ? 'warning' : 'success', syncResult.synced, syncResult.errors, syncResult, startFase4);
+
+
+                        // --- INVIO REPORT SUCCESSO ---
+                        const durationMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
+                        await this.sendSuccessEmail(utenteId, phases, durationMinutes);
+
+                        logger.info(`✅ Workflow completo terminato per utente ${utenteId}.`);
+                        jobProgressManager.completeJob(jobId, 'Workflow Completato con Successo');
+                        if (globalLog) await this.updateLog(globalLog.id, 'success', 0, 0, { totalDuration: durationMinutes + 'm' }, startTime);
+
+                        resolve();
+                    } catch (err) {
+                        reject(err);
+                    } finally {
+                        clearTimeout(timeoutId);
+                    }
+                })();
             });
-
-            jobProgressManager.updateProgress(jobId, 15, 'Listini aggiornati con successo');
-            if (logFase1) await this.updateLog(logFase1.id, 'success', totalImported, failCount, importResult, startFase1);
-
-            // --- FASE 1.5: CONSOLIDAMENTO MASTER FILE ---
-            logger.info(`--- FASE 1.5 (Utente ${utenteId}): Consolidamento Master File ---`);
-            const logFase1_5 = await this.createLog(utenteId, 'CONSOLIDAMENTO_MASTERFILE');
-            const startFase1_5 = Date.now();
-
-            const { MasterFileService } = await import('./MasterFileService');
-            const consolidationResult = await MasterFileService.consolidaMasterFile(utenteId);
-
-            phases.push({
-                numero: 1.5,
-                nome: 'Consolidamento Master File',
-                icona: '🎯',
-                stato: 'success',
-                dettagli: [
-                    `Prodotti consolidati: ${consolidationResult.consolidated}`,
-                    `Prodotti filtrati: ${consolidationResult.filtered}`
-                ]
-            });
-
-            jobProgressManager.updateProgress(jobId, 30, 'Catalogo consolidato e filtrato');
-            if (logFase1_5) await this.updateLog(logFase1_5.id, 'success', consolidationResult.consolidated, 0, consolidationResult, startFase1_5);
-
-            // --- FASE 1.7: RECUPERO IDENTITÀ ---
-            logger.info(`--- FASE 1.7 (Utente ${utenteId}): Identificazione Prodotti ---`);
-            const logFase1_7 = await this.createLog(utenteId, 'RECUPERO_IDENTITA');
-            const startFase1_7 = Date.now();
-
-            const { ProductIdentityService } = await import('./ProductIdentityService');
-            const identityResult = await ProductIdentityService.recoverIdentities(utenteId);
-
-            phases.push({
-                numero: 1.7,
-                nome: 'Identificazione Prodotti',
-                icona: '🆔',
-                stato: 'success',
-                dettagli: [
-                    `Recuperati Icecat/AI: ${identityResult.recoveredIcecat + identityResult.recoveredAI}`,
-                    `Falliti: ${identityResult.failed}`
-                ]
-            });
-
-            if (identityResult.recoveredIcecat > 0 || identityResult.recoveredAI > 0) {
-                const { MarkupService } = await import('./MarkupService');
-                await MarkupService.applicaRegolePrezzi(utenteId);
-            }
-
-            jobProgressManager.updateProgress(jobId, 45, 'Identità prodotti recuperate');
-            if (logFase1_7) await this.updateLog(logFase1_7.id, 'success', identityResult.recoveredIcecat + identityResult.recoveredAI, identityResult.failed, identityResult, startFase1_7);
-
-
-            // --- FASE 2: ARRICCHIMENTO DATI (ICECAT) ---
-            logger.info(`--- FASE 2 (Utente ${utenteId}): Arricchimento Icecat ---`);
-            const logFase2_Icecat = await this.createLog(utenteId, 'ARRICCHIMENTO_ICECAT');
-            const startFase2_Icecat = Date.now();
-
-            const { IcecatService } = await import('./IcecatService');
-            const icecatConfig = await IcecatService.getConfig(utenteId);
-            let icecatResult = { enriched: 0, skipped: 0, errors: 0, total: 0 };
-
-            if (icecatConfig.configured) {
-                icecatResult = await IcecatService.enrichMasterFile(utenteId);
-            }
-
-            phases.push({
-                numero: 2,
-                nome: 'Arricchimento Icecat',
-                icona: icecatConfig.configured ? '✅' : '⏭️',
-                stato: 'success',
-                dettagli: [`Prodotti arricchiti: ${icecatResult.enriched}`]
-            });
-
-            jobProgressManager.updateProgress(jobId, 60, 'Dati Icecat arricchiti');
-            if (logFase2_Icecat) await this.updateLog(logFase2_Icecat.id, 'success', icecatResult.enriched, icecatResult.errors, icecatResult, startFase2_Icecat);
-
-            // --- FASE 2.5: OTTIMIZZAZIONE AI ---
-            logger.info(`--- FASE 2.5 (Utente ${utenteId}): Ottimizzazione AI ---`);
-            const logFase2_AI = await this.createLog(utenteId, 'OTTMIZZAZIONE_AI');
-            const startFase2_AI = Date.now();
-
-            const { AIEnrichmentService } = await import('./AIEnrichmentService');
-            let totalEnriched = 0;
-            for (let i = 0; i < 20; i++) {
-                const batchResult = await AIEnrichmentService.processBatch(utenteId, 50);
-                totalEnriched += batchResult.success;
-                if (batchResult.processed === 0) break;
-                await new Promise(r => setTimeout(r, 500));
-            }
-
-            phases.push({
-                numero: 2.5,
-                nome: 'Arricchimento AI Gemini',
-                icona: '✅',
-                stato: 'success',
-                dettagli: [`Contenuti generati: ${totalEnriched}`]
-            });
-
-            jobProgressManager.updateProgress(jobId, 75, 'Ottimizzazione AI Gemini completata');
-            if (logFase2_AI) await this.updateLog(logFase2_AI.id, 'success', totalEnriched, 0, { enriched: totalEnriched }, startFase2_AI);
-
-
-            // --- FASE 3: GENERAZIONE EXPORT SHOPIFY ---
-            logger.info(`--- FASE 3 (Utente ${utenteId}): Export Shopify ---`);
-            const logFase3 = await this.createLog(utenteId, 'EXPORT_SHOPIFY');
-            const startFase3 = Date.now();
-
-            const { ShopifyExportService } = await import('./ShopifyExportService');
-            await ShopifyExportService.generateExport(utenteId);
-            const exportData = await ShopifyService.getSyncProgress(utenteId);
-            const exportCount = exportData.total;
-
-            phases.push({
-                numero: 3,
-                nome: 'Generazione Export Shopify',
-                icona: '✅',
-                stato: 'success',
-                dettagli: [`Prodotti in export: ${exportCount}`]
-            });
-
-            jobProgressManager.updateProgress(jobId, 85, 'Export Shopify generato');
-            if (logFase3) await this.updateLog(logFase3.id, 'success', exportCount, 0, { readyForExport: exportCount }, startFase3);
-
-
-            // --- FASE 4: SINCRONIZZAZIONE SHOPIFY ---
-            logger.info(`--- FASE 4 (Utente ${utenteId}): Sync Shopify ---`);
-            const logFase4 = await this.createLog(utenteId, 'SYNC_SHOPIFY');
-            const startFase4 = Date.now();
-
-            const syncResult = await ShopifyService.syncProducts(utenteId);
-
-            phases.push({
-                numero: 4,
-                nome: 'Sincronizzazione Shopify',
-                icona: syncResult.errors > 0 ? '⚠️' : '✅',
-                stato: syncResult.errors > 0 ? 'warning' : 'success',
-                dettagli: [
-                    `Totale: ${syncResult.total}`,
-                    `OK: ${syncResult.synced}`,
-                    `Errori: ${syncResult.errors}`
-                ]
-            });
-
-            jobProgressManager.updateProgress(jobId, 95, 'Sincronizzazione Shopify completata');
-            if (logFase4) await this.updateLog(logFase4.id, syncResult.errors > 0 ? 'warning' : 'success', syncResult.synced, syncResult.errors, syncResult, startFase4);
-
-
-            // --- INVIO REPORT SUCCESSO ---
-            const durationMinutes = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
-            await this.sendSuccessEmail(utenteId, phases, durationMinutes);
-
-            logger.info(`✅ Workflow completo terminato per utente ${utenteId}.`);
-            jobProgressManager.completeJob(jobId, 'Workflow Completato con Successo');
-            if (globalLog) await this.updateLog(globalLog.id, 'success', 0, 0, { totalDuration: durationMinutes + 'm' }, startTime);
 
         } catch (error: any) {
             logger.error(`❌ Errore critico workflow utente ${utenteId}:`, error);

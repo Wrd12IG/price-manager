@@ -3,6 +3,7 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AIMetafieldService } from './AIMetafieldService';
 import { EnhancedMetafieldService } from './EnhancedMetafieldService';
+import { jobProgressManager } from './JobProgressService';
 
 export class ShopifyExportService {
 
@@ -55,7 +56,7 @@ export class ShopifyExportService {
     /**
      * Genera record per export Shopify per un utente
      */
-    static async generateExport(utenteId: number): Promise<any[]> {
+    static async generateExport(utenteId: number, jobId?: string): Promise<any[]> {
         logger.info(`📤 [Utente ${utenteId}] Generazione dati export Shopify`);
 
         // 1. Prendi tutti i prodotti nel MasterFile CON i dati ICECAT
@@ -84,7 +85,19 @@ export class ShopifyExportService {
         if (productsNeedingExport.length > 0) {
             logger.info(`🆕 [Utente ${utenteId}] Processamento di ${productsNeedingExport.length} record di output (nuovi o da aggiornare)`);
 
+            let processedCount = 0;
+            const totalToProcess = productsNeedingExport.length;
+
             for (const p of productsNeedingExport) {
+                processedCount++;
+
+                // Aggiorna progress se jobId è presente (ogni 5 prodotti o alla fine)
+                if (jobId && (processedCount % 5 === 0 || processedCount === totalToProcess)) {
+                    // Mappiamo il progresso tra 75% e 85% della fase globale se siamo nel workflow principale?
+                    // Per semplicità, aggiorniamo solo il messaggio e teniamo la percentuale "base" della fase
+                    // Oppure se è un job dedicato, usiamo 0-100.
+                    jobProgressManager.updateProgress(jobId, undefined, `Generazione export: ${processedCount}/${totalToProcess} prodotti...`);
+                }
                 let title = p.nomeProdotto;
                 let vendor = p.marchio?.nome || 'Generico';
 

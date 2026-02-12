@@ -424,6 +424,7 @@ Restituisci SOLO un JSON valido (senza markdown, senza backticks):
   "rapporto_aspetto": "16:9/16:10/3:2 o null",
   "descrizione_breve": "max 150 caratteri dalla pagina o null",
   "descrizione_lunga": "descrizione completa dalla pagina o null",
+  "tabella_specifiche": "HTML table completo con tutte le specifiche della pagina, stile pulito: <table style='width:100%; border-collapse:collapse;'>...</table> o null",
   "peso": "peso prodotto o null",
   "batteria": "specifiche batteria o null",
   "connettivita": "WiFi, Bluetooth, etc o null",
@@ -431,7 +432,11 @@ Restituisci SOLO un JSON valido (senza markdown, senza backticks):
 }`;
 
         try {
-            const result = await model.generateContent(prompt);
+            // TIMEOUT PER AI: Massimo 60 secondi
+            const aiPromise = model.generateContent(prompt);
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout AI Generation')), 60000));
+
+            const result: any = await Promise.race([aiPromise, timeoutPromise]);
             const response = result.response;
             let text = response.text().trim();
 
@@ -454,6 +459,7 @@ Restituisci SOLO un JSON valido (senza markdown, senza backticks):
             if (data.rapporto_aspetto) metafields['custom.rapporto_aspetto'] = data.rapporto_aspetto;
             if (data.descrizione_breve) metafields['custom.descrizione_breve'] = data.descrizione_breve;
             if (data.descrizione_lunga) metafields['custom.descrizione_lunga'] = data.descrizione_lunga;
+            if (data.tabella_specifiche) metafields['custom.tabella_specifiche'] = data.tabella_specifiche;
             if (data.peso) metafields['custom.peso'] = data.peso;
             if (data.batteria) metafields['custom.batteria'] = data.batteria;
             if (data.connettivita) metafields['custom.connettivita'] = data.connettivita;
