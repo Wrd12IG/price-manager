@@ -91,7 +91,7 @@ export class AIEnrichmentService {
         return true;
     }
 
-    static async processBatch(utenteId: number, limit: number = 50) {
+    static async processBatch(utenteId: number, limit: number = 50, onProgress?: (successCount: number) => Promise<void>) {
         const products = await prisma.masterFile.findMany({
             where: {
                 utenteId,
@@ -122,7 +122,13 @@ export class AIEnrichmentService {
                 return false;
             }));
 
-            success += results.filter(Boolean).length;
+            const chunkSuccess = results.filter(Boolean).length;
+            success += chunkSuccess;
+
+            // Report progress in real-time if callback provided
+            if (onProgress && chunkSuccess > 0) {
+                await onProgress(success);
+            }
 
             jobProgressManager.updateProgress(
                 jobId,

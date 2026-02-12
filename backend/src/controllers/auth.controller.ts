@@ -229,3 +229,35 @@ export const getCurrentUser = asyncHandler(async (req: AuthRequest, res: Respons
 
     res.json({ success: true, data: user });
 });
+
+/**
+ * POST /api/auth/admin/reset-password
+ * Admin: Resetta la password di un utente
+ */
+export const adminResetPassword = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { userId, newPassword } = req.body;
+
+    // Controllo permessi (ridondante se c'è middleware, ma sicuro)
+    if (req.user.ruolo !== 'admin' && req.utenteId !== 1) {
+        return res.status(403).json({ success: false, error: 'Accesso negato' });
+    }
+
+    if (!userId || !newPassword) {
+        return res.status(400).json({ success: false, error: 'ID Utente e nuova password richiesti' });
+    }
+
+    if (newPassword.length < 8) {
+        return res.status(400).json({ success: false, error: 'La password deve essere di almeno 8 caratteri' });
+    }
+
+    const success = await AuthService.adminResetPassword(Number(userId), newPassword);
+
+    if (!success) {
+        return res.status(404).json({ success: false, error: 'Utente non trovato' });
+    }
+
+    res.json({
+        success: true,
+        message: `Password aggiornata per l'utente ${userId}`
+    });
+});

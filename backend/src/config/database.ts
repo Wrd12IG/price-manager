@@ -5,26 +5,31 @@ import dotenv from 'dotenv';
 // Carichiamo le variabili d'ambiente PRIMA di inizializzare Prisma
 dotenv.config();
 
-// FIX CRITICO: Forza SSL per Supabase se manca
-const fixUrl = (url: string | undefined) => {
+// FIX CRITICO: Forza SSL per Supabase e ottimizza pool
+const getOptimizedUrl = (url: string | undefined) => {
     if (!url) return url;
-    if (url.includes('sslmode=')) return url;
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}sslmode=require`;
+
+    // Rimuovi eventuali parametri esistenti di pool/timeout per evitare duplicati
+    let cleanUrl = url.split('?')[0];
+
+    // Configurazione ottimizzata per Supabase/Postgres
+    // connection_limit: 20 (adatto per il traffico previsto)
+    // pool_timeout: 30 (secondi di attesa per una connessione)
+    // sslmode: require (necessario per Supabase)
+    return `${cleanUrl}?connection_limit=20&pool_timeout=30&sslmode=require`;
 };
 
-if (process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = fixUrl(process.env.DATABASE_URL);
-}
-if (process.env.DIRECT_URL) {
-    process.env.DIRECT_URL = fixUrl(process.env.DIRECT_URL);
+const optimizedUrl = getOptimizedUrl(process.env.DATABASE_URL);
+
+if (optimizedUrl) {
+    process.env.DATABASE_URL = optimizedUrl;
 }
 
-// Crea istanza Prisma ottimizzata per Supabase/PgBouncer
+// Crea istanza Prisma singleton
 const prisma = new PrismaClient({
     datasources: {
         db: {
-            url: process.env.DATABASE_URL
+            url: optimizedUrl
         }
     },
     log: ['error', 'warn']
@@ -32,7 +37,8 @@ const prisma = new PrismaClient({
 
 // Test connessione silente
 prisma.$connect()
-    .then(() => logger.info('✅ Connessione Database stabilita'))
+    .then(() => logger.info('✅ Connessione Database stabilita con pool ottimizzato (20)'))
     .catch(err => logger.error('❌ Errore connessione Database:', err.message));
 
 export default prisma;
+

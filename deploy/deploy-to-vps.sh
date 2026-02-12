@@ -12,13 +12,30 @@ echo "════════════════════════�
 echo "   Deploy Price Manager Backend su VPS"
 echo "═══════════════════════════════════════════════════════════"
 
-# Crea archivio del backend
-echo "📦 Creazione archivio backend..."
-cd "$(dirname "$0")/.."
+# 1. Build Frontend
+echo "📦 Building Frontend..."
+FRONTEND_DIR="$(dirname "$0")/../frontend"
+BACKEND_DIR="$(dirname "$0")/../backend"
+
+cd "$FRONTEND_DIR"
+npm install
+npm run build
+cd ..
+
+# 2. Copia l'output della build del frontend nella cartella public del backend
+echo "🚚 Copying frontend assets to backend/public..."
+mkdir -p "$BACKEND_DIR/public"
+rm -rf "$BACKEND_DIR/public"/*
+cp -r "$FRONTEND_DIR/dist"/* "$BACKEND_DIR/public/"
+
+# 3. Creazione archivio del backend (che ora contiene il frontend in public/)
+echo "📦 Creazione archivio completo..."
+cd "$BACKEND_DIR/.."
 tar -czf /tmp/backend.tar.gz \
     --exclude='node_modules' \
     --exclude='.git' \
     --exclude='prisma/dev.db' \
+    --exclude='.env' \
     --exclude='*.log' \
     backend/
 

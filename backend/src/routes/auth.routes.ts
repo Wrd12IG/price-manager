@@ -29,4 +29,9 @@ router.post('/reset-password', resetPassword);
 // Info utente
 router.get('/me', authMiddleware, getCurrentUser);
 
+// Admin
+import { adminResetPassword } from '../controllers/auth.controller';
+import { adminOnly } from '../middleware/auth.middleware';
+router.post('/admin/reset-password', authMiddleware, adminOnly, adminResetPassword);
+
 export default router;

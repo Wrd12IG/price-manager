@@ -237,4 +237,28 @@ export class AuthService {
             resetTokens: resetResult.count
         };
     }
+
+    /**
+     * Admin: Resetta la password di un utente specifico
+     */
+    static async adminResetPassword(targetUserId: number, newPassword: string): Promise<boolean> {
+        const user = await prisma.utente.findUnique({ where: { id: targetUserId } });
+        if (!user) return false;
+
+        const passwordHash = await bcrypt.hash(newPassword, 12);
+
+        await prisma.$transaction([
+            prisma.utente.update({
+                where: { id: targetUserId },
+                data: { passwordHash }
+            }),
+            // Invalida tutti i token per forzare il re-login
+            prisma.refreshToken.deleteMany({
+                where: { utenteId: targetUserId }
+            })
+        ]);
+
+        logger.info(`Password resettata da admin per utente ${targetUserId}`);
+        return true;
+    }
 }

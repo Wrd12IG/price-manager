@@ -28,8 +28,8 @@ async function syncSingleProduct() {
         console.log(`Status: ${p.statoCaricamento}`);
 
         // 2. Prepare Shopify credentials from DB
-        const configUrl = await prisma.configurazioneSistema.findUnique({ where: { chiave: 'shopify_shop_url' } });
-        const configToken = await prisma.configurazioneSistema.findUnique({ where: { chiave: 'shopify_access_token' } });
+        const configUrl = await prisma.configurazioneSistema.findFirst({ where: { chiave: 'shopify_shop_url' } });
+        const configToken = await prisma.configurazioneSistema.findFirst({ where: { chiave: 'shopify_access_token' } });
 
         if (!configUrl || !configToken) {
             console.log('❌ Missing Shopify configuration in database');

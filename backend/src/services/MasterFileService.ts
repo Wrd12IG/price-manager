@@ -372,15 +372,23 @@ export class MasterFileService {
         }
     }
 
-    static async getStats(utenteId: number): Promise<any> {
-        const prodCount = await prisma.masterFile.count({ where: { utenteId } });
-        const icecatCount = await prisma.datiIcecat.count({ where: { masterFile: { utenteId } } });
+    static async getStats(utenteId: number | null): Promise<any> {
+        const where = utenteId ? { utenteId } : {};
+        const prodCount = await prisma.masterFile.count({ where });
+        const icecatCount = await prisma.datiIcecat.count({
+            where: { masterFile: where }
+        });
         return { totalProducts: prodCount, enrichedIcecat: icecatCount };
     }
 
-    static async getMasterFile(utenteId: number, page: number = 1, limit: number = 50, search: string = '', filters: any = {}): Promise<any> {
+    static async getMasterFile(utenteId: number | null, page: number = 1, limit: number = 50, search: string = '', filters: any = {}): Promise<any> {
         const skip = (page - 1) * limit;
-        const where: any = { utenteId };
+        const where: any = utenteId ? { utenteId } : {};
+
+        // Se l'admin vuole filtrare per un utente specifico
+        if (!utenteId && filters.utenteId) {
+            where.utenteId = filters.utenteId;
+        }
 
         if (search) {
             where.OR = [
@@ -414,21 +422,23 @@ export class MasterFileService {
         };
     }
 
-    static async getFilterOptions(utenteId: number) {
+    static async getFilterOptions(utenteId: number | null) {
+        const where = utenteId ? { utenteId } : {};
+
         const marchi = await prisma.masterFile.findMany({
-            where: { utenteId, marchioId: { not: null } },
+            where: { ...where, marchioId: { not: null } },
             distinct: ['marchioId'],
             select: { marchio: { select: { id: true, nome: true } } }
         });
 
         const categorie = await prisma.masterFile.findMany({
-            where: { utenteId, categoriaId: { not: null } },
+            where: { ...where, categoriaId: { not: null } },
             distinct: ['categoriaId'],
             select: { categoria: { select: { id: true, nome: true } } }
         });
 
         const fornitori = await prisma.masterFile.findMany({
-            where: { utenteId },
+            where: { ...where },
             distinct: ['fornitoreSelezionatoId'],
             select: { fornitoreSelezionato: { select: { id: true, nomeFornitore: true } } }
         });
@@ -436,7 +446,10 @@ export class MasterFileService {
         return {
             marchi: marchi.map(m => m.marchio).filter(Boolean),
             categorie: categorie.map(c => c.categoria).filter(Boolean),
-            fornitori: fornitori.map(f => ({ id: f.fornitoreSelezionato.id, nome: f.fornitoreSelezionato.nomeFornitore }))
+            fornitori: fornitori.map(f => ({
+                id: f.fornitoreSelezionato?.id,
+                nome: f.fornitoreSelezionato?.nomeFornitore
+            }))
         };
     }
 }

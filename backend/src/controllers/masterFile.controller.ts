@@ -9,8 +9,8 @@ import { AuthRequest } from '../middleware/auth.middleware';
  * Ottiene il catalogo consolidato paginato (Multi-Tenant)
  */
 export const getMasterFile = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const utenteId = req.utenteId;
-    if (!utenteId) throw new AppError('Non autorizzato', 401);
+    const isAdmin = req.user?.ruolo === 'admin' || utenteId === 1;
+    const effectiveUtenteId = isAdmin ? null : utenteId;
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 50;
@@ -19,10 +19,11 @@ export const getMasterFile = asyncHandler(async (req: AuthRequest, res: Response
         marchioId: req.query.marchioId ? parseInt(req.query.marchioId as string) : undefined,
         categoriaId: req.query.categoriaId ? parseInt(req.query.categoriaId as string) : undefined,
         fornitoreId: req.query.fornitoreId ? parseInt(req.query.fornitoreId as string) : undefined,
+        utenteId: req.query.utenteId ? parseInt(req.query.utenteId as string) : undefined,
         soloDisponibili: req.query.soloDisponibili === 'true'
     };
 
-    const result = await MasterFileService.getMasterFile(utenteId, page, limit, search, filters);
+    const result = await MasterFileService.getMasterFile(effectiveUtenteId, page, limit, search, filters);
 
     res.json({
         success: true,
@@ -54,9 +55,10 @@ export const consolidateMasterFile = asyncHandler(async (req: AuthRequest, res: 
  */
 export const getMasterFileFilters = asyncHandler(async (req: AuthRequest, res: Response) => {
     const utenteId = req.utenteId;
-    if (!utenteId) throw new AppError('Non autorizzato', 401);
+    const isAdmin = req.user?.ruolo === 'admin' || utenteId === 1;
+    const effectiveUtenteId = isAdmin ? null : utenteId;
 
-    const filters = await MasterFileService.getFilterOptions(utenteId);
+    const filters = await MasterFileService.getFilterOptions(effectiveUtenteId);
 
     res.json({
         success: true,

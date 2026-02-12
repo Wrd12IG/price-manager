@@ -3,7 +3,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { NormalizationService } from '../services/NormalizationService';
 import { logger } from '../utils/logger';
 
-export const getStats = async (req: AuthRequest, res: Response) => {
+export const getStats = async (req: any, res: Response) => {
     try {
         const { type } = req.params;
         const stats = await NormalizationService.getStats(type as any);
@@ -14,7 +14,7 @@ export const getStats = async (req: AuthRequest, res: Response) => {
     }
 };
 
-export const getDuplicates = async (req: AuthRequest, res: Response) => {
+export const getDuplicates = async (req: any, res: Response) => {
     try {
         const { type } = req.params;
         const duplicates = await NormalizationService.getPotentialDuplicates(type as any);
@@ -25,7 +25,7 @@ export const getDuplicates = async (req: AuthRequest, res: Response) => {
     }
 };
 
-export const mergeItems = async (req: AuthRequest, res: Response) => {
+export const mergeItems = async (req: any, res: Response) => {
     try {
         const { type } = req.params;
         const { sourceId, targetId, global } = req.body;

@@ -183,9 +183,11 @@ app.use('/api/normalization', normalizationRoutes);
 const publicPath = path.join(__dirname, '../public');
 if (require('fs').existsSync(publicPath)) {
     app.use(express.static(publicPath));
-    app.get('*', (req, res) => {
+    app.get('*', (req, res, next) => {
         if (!req.path.startsWith('/api/')) {
             res.sendFile(path.join(publicPath, 'index.html'));
+        } else {
+            next();
         }
     });
 }

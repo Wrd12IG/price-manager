@@ -49,7 +49,8 @@ import {
     Memory as MemoryIcon,
     Storage as StorageIcon,
     Settings as SettingsIcon,
-    AppShortcut as AppIcon
+    AppShortcut as AppIcon,
+    LockReset as LockResetIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -64,6 +65,12 @@ const AdminPanel: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState<number | null>(null);
+
+    // Dialog Reset Password
+    const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+    const [userToReset, setUserToReset] = useState<number | null>(null);
+    const [newPassword, setNewPassword] = useState('');
+    const [resettingPassword, setResettingPassword] = useState(false);
 
     // Gestione Impostazioni Globali
     const [globalSettings, setGlobalSettings] = useState({
@@ -166,6 +173,42 @@ const AdminPanel: React.FC = () => {
             toast.error(err.response?.data?.error || 'Errore durante l\'eliminazione');
         }
     };
+
+    // Gestione Reset Password
+    const handleOpenResetDialog = (id: number) => {
+        setUserToReset(id);
+        setNewPassword('');
+        setResetPasswordDialogOpen(true);
+    };
+
+    const handleCloseResetDialog = () => {
+        setResetPasswordDialogOpen(false);
+        setUserToReset(null);
+        setNewPassword('');
+    };
+
+    const handleResetPassword = async () => {
+        if (!userToReset || !newPassword) return;
+        if (newPassword.length < 8) {
+            toast.error('La password deve essere di almeno 8 caratteri');
+            return;
+        }
+
+        setResettingPassword(true);
+        try {
+            await axios.post(`${API_URL}/auth/admin/reset-password`,
+                { userId: userToReset, newPassword },
+                { headers: getHeaders() }
+            );
+            toast.success('Password aggiornata con successo');
+            handleCloseResetDialog();
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Errore durante il reset della password');
+        } finally {
+            setResettingPassword(false);
+        }
+    };
+
 
     const handleCreateUser = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -326,7 +369,8 @@ const AdminPanel: React.FC = () => {
                                         <TableCell sx={{ fontWeight: 'bold' }}>Ruolo</TableCell>
                                         <TableCell sx={{ fontWeight: 'bold' }}>Prodotti</TableCell>
                                         <TableCell sx={{ fontWeight: 'bold' }} align="center">Stato</TableCell>
-                                        <TableCell sx={{ fontWeight: 'bold' }} align="center">Elimina</TableCell>
+                                        <TableCell sx={{ fontWeight: 'bold' }} align="center">Stato</TableCell>
+                                        <TableCell sx={{ fontWeight: 'bold' }} align="center">Azioni</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -353,9 +397,18 @@ const AdminPanel: React.FC = () => {
                                                 <Switch checked={user.attivo} onChange={() => toggleUserStatus(user.id, user.attivo)} color="success" size="small" disabled={user.id === 1} />
                                             </TableCell>
                                             <TableCell align="center">
-                                                <IconButton size="small" color="error" onClick={() => handleOpenDeleteDialog(user.id)} disabled={user.id === 1}>
-                                                    <DeleteIcon fontSize="small" />
-                                                </IconButton>
+                                                <Box display="flex" justifyContent="center">
+                                                    <Tooltip title="Resetta Password">
+                                                        <IconButton size="small" color="primary" onClick={() => handleOpenResetDialog(user.id)} sx={{ mr: 1 }}>
+                                                            <LockResetIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                    <Tooltip title="Elimina Utente">
+                                                        <IconButton size="small" color="error" onClick={() => handleOpenDeleteDialog(user.id)} disabled={user.id === 1}>
+                                                            <DeleteIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                </Box>
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -510,6 +563,39 @@ const AdminPanel: React.FC = () => {
                     <Button onClick={handleCloseDeleteDialog}>Annulla</Button>
                     <Button onClick={handleDeleteUser} color="error" variant="contained" sx={{ borderRadius: '8px' }}>
                         Conferma Eliminazione
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Dialog Reset Password */}
+            <Dialog open={resetPasswordDialogOpen} onClose={handleCloseResetDialog} PaperProps={{ sx: { borderRadius: '16px' } }}>
+                <DialogTitle sx={{ fontWeight: 'bold' }}>🔐 Resetta Password Utente</DialogTitle>
+                <DialogContent>
+                    <DialogContentText sx={{ mb: 2 }}>
+                        Imposta una nuova password per l'utente selezionato.
+                        Questa azione invaliderà tutti i token di accesso attivi dell'utente.
+                    </DialogContentText>
+                    <TextField
+                        autoFocus
+                        margin="dense"
+                        label="Nuova Password"
+                        type="password"
+                        fullWidth
+                        variant="outlined"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        helperText="Minimo 8 caratteri"
+                    />
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    <Button onClick={handleCloseResetDialog} disabled={resettingPassword}>Annulla</Button>
+                    <Button
+                        onClick={handleResetPassword}
+                        variant="contained"
+                        disabled={resettingPassword || newPassword.length < 8}
+                        sx={{ bgcolor: '#3b82f6', borderRadius: '8px' }}
+                    >
+                        {resettingPassword ? 'Salvataggio...' : 'Imposta Password'}
                     </Button>
                 </DialogActions>
             </Dialog>

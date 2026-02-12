@@ -10,19 +10,21 @@ import { AuthRequest } from '../middleware/auth.middleware';
  */
 export const getDashboardStats = asyncHandler(async (req: AuthRequest, res: Response) => {
     const utenteId = req.utenteId;
+    const isAdmin = req.user?.ruolo === 'admin' || utenteId === 1;
+    const effectiveUtenteId = isAdmin ? null : utenteId;
 
     try {
         const [totalFornitori, totalProdotti, ultimaEsecuzione, prodottiImportatiOggi, recentLogs] = await Promise.all([
-            (prisma.fornitore as any).count({ where: { utenteId } }),
-            (prisma.masterFile as any).count({ where: { utenteId } }),
+            (prisma.fornitore as any).count({ where: isAdmin ? {} : { utenteId } }),
+            (prisma.masterFile as any).count({ where: isAdmin ? {} : { utenteId } }),
             (prisma.logElaborazione as any).findFirst({
-                where: { utenteId, stato: 'completed' },
+                where: isAdmin ? { stato: 'completed' } : { utenteId, stato: 'completed' },
                 orderBy: { dataEsecuzione: 'desc' },
                 select: { dataEsecuzione: true }
             }),
             (prisma.logElaborazione as any).aggregate({
                 where: {
-                    utenteId,
+                    ...(isAdmin ? {} : { utenteId }),
                     faseProcesso: { contains: 'IMPORT' },
                     dataEsecuzione: {
                         gte: new Date(new Date().setHours(0, 0, 0, 0))
@@ -31,7 +33,7 @@ export const getDashboardStats = asyncHandler(async (req: AuthRequest, res: Resp
                 _sum: { prodottiProcessati: true }
             }),
             (prisma.logElaborazione as any).findMany({
-                where: { utenteId },
+                where: isAdmin ? {} : { utenteId },
                 take: 5,
                 orderBy: { dataEsecuzione: 'desc' }
             })

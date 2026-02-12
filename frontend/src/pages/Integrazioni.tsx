@@ -302,19 +302,43 @@ export default function Integrazioni() {
             }
             fetchShopifyPreview(); // Refresh preview
         } catch (error: any) {
-            console.error('Errore Sync:', error);
-            const errorMsg = error.response?.data?.error || error.message || 'Errore di connessione al server';
+            console.error('❌ ERRORE CRITICO SYNC:', error);
+
+            const technicalDetails = {
+                timestamp: new Date().toISOString(),
+                status: error.response?.status,
+                statusText: error.response?.statusText,
+                url: error.config?.url,
+                method: error.config?.method,
+                data: error.response?.data,
+                message: error.message,
+                stack: error.stack?.substring(0, 300)
+            };
+
+            const errorMsg = error.response?.data?.error || error.message || 'Errore di connessione';
 
             toast.update(toastId, {
-                render: `Errore: ${typeof errorMsg === 'string' ? errorMsg : 'Sincronizzazione fallita'}`,
+                render: (
+                    <Box>
+                        <Typography variant="body2" fontWeight="bold">Sincronizzazione fallita</Typography>
+                        <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>{typeof errorMsg === 'string' ? errorMsg : 'Errore tecnico'}</Typography>
+                        <Button
+                            size="small"
+                            variant="contained"
+                            color="error"
+                            style={{ fontSize: '10px', padding: '2px 8px' }}
+                            onClick={() => {
+                                alert(`DETTAGLI TECNICI PER ASSISTENZA:\n\n${JSON.stringify(technicalDetails, null, 2)}`);
+                            }}
+                        >
+                            Dettagli Tecnici
+                        </Button>
+                    </Box>
+                ),
                 type: 'error',
                 isLoading: false,
-                autoClose: 5000
+                autoClose: 10000
             });
-
-            if (typeof errorMsg === 'string' && errorMsg.length < 100) {
-                alert(`ATTENZIONE: ${errorMsg}`);
-            }
         } finally {
             setSyncing(false);
         }
