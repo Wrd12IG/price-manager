@@ -275,31 +275,46 @@ export default function Integrazioni() {
 
     const executeSync = async () => {
         setSyncing(true);
-        const toastId = toast.loading('Sincronizzazione in corso...');
+        const toastId = toast.loading('Avvio sincronizzazione...');
         handleCloseSyncConfirm();
 
         try {
             const response = await api.post('/shopify/sync');
-            const { prepared, success, errors } = response.data.data;
+            const data = response.data.data;
 
-            toast.update(toastId, {
-                render: `Sync completato! Preparati: ${prepared}, Inviati: ${success}, Errori: ${errors}`,
-                type: 'success',
-                isLoading: false,
-                autoClose: 5000
-            });
+            if (data.background) {
+                toast.update(toastId, {
+                    render: 'Sincronizzazione avviata in background. Monitora il progresso qui sotto.',
+                    type: 'info',
+                    isLoading: false,
+                    autoClose: 5000
+                });
+                // Avviamo subito il polling del progresso
+                fetchShopifyProgress();
+            } else {
+                const { prepared, success, errors } = data;
+                toast.update(toastId, {
+                    render: `Sync completato! Preparati: ${prepared || 0}, Inviati: ${success || 0}, Errori: ${errors || 0}`,
+                    type: 'success',
+                    isLoading: false,
+                    autoClose: 5000
+                });
+            }
             fetchShopifyPreview(); // Refresh preview
         } catch (error: any) {
             console.error('Errore Sync:', error);
-            const errorMsg = error.response?.data?.error?.message || error.message || 'Errore sconosciuto';
-            alert(`ERRORE SINCRONIZZAZIONE:\n\n${errorMsg}`);
+            const errorMsg = error.response?.data?.error || error.message || 'Errore di connessione al server';
 
             toast.update(toastId, {
-                render: 'Errore durante la sincronizzazione',
+                render: `Errore: ${typeof errorMsg === 'string' ? errorMsg : 'Sincronizzazione fallita'}`,
                 type: 'error',
                 isLoading: false,
                 autoClose: 5000
             });
+
+            if (typeof errorMsg === 'string' && errorMsg.length < 100) {
+                alert(`ATTENZIONE: ${errorMsg}`);
+            }
         } finally {
             setSyncing(false);
         }
