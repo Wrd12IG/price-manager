@@ -69,25 +69,40 @@ export class ShopifyService {
         const token = await this.getAccessToken(utenteId);
         if (!token) throw new Error('Token Shopify mancante');
 
-        // Genera o aggiorna i record per l'export
-        await ShopifyExportService.generateExport(utenteId);
+        // Creiamo il job subito per mostrare il progresso della preparazione
+        const jobId = jobProgressManager.createJob('export', { utenteId });
+        jobProgressManager.startJob(jobId, 'Preparazione dati per Shopify...');
+
+        // Genera o aggiorna i record per l'export (passiamo jobId per il tracking interno)
+        await ShopifyExportService.generateExport(utenteId, jobId);
 
         const products = await prisma.outputShopify.findMany({
             where: { utenteId, statoCaricamento: { not: 'uploaded' } },
             take: 250
         });
 
-        if (products.length === 0) return { success: 0, errors: 0, total: 0 };
+        if (products.length === 0) {
+            jobProgressManager.completeJob(jobId, 'Nessun prodotto da sincronizzare');
+            return { success: 0, errors: 0, total: 0 };
+        }
 
-        const jobId = jobProgressManager.createJob('export', { utenteId, total: products.length });
-        jobProgressManager.startJob(jobId, `Avvio sincronizzazione di ${products.length} prodotti su Shopify...`);
+        // Aggiorniamo il totale nel job per il calcolo percentuale corretta
+        const job = jobProgressManager.getJob(jobId);
+        if (job && job.metadata) {
+            job.metadata.total = products.length;
+        }
+
+        jobProgressManager.updateProgress(jobId, 0, `Invio di ${products.length} prodotti a Shopify...`);
 
         let success = 0;
         let errors = 0;
 
         for (const p of products) {
             try {
-                const shopifyUrl = `https://${config.shopUrl}/admin/api/2024-01/products.json`;
+                const cleanShopUrl = config.shopUrl.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '').split('/')[0];
+                const shopifyUrl = `https://${cleanShopUrl}/admin/api/2024-01/products.json`;
+
+                logger.debug(`[Shopify] Sync URL: ${shopifyUrl}`);
 
                 // Prepara Metafields
                 const metafields = [];
@@ -155,25 +170,25 @@ export class ShopifyService {
                                 body_html: p.bodyHtml,
                                 vendor: p.vendor,
                                 product_type: p.productType,
-                                status: status, // active o draft
+                                status: status,
                                 tags: tags,
                                 variants: [{
                                     sku: p.sku,
                                     barcode: p.barcode,
                                     price: p.variantPrice || 0,
-                                    inventory_quantity: p.variantInventoryQty,
-                                    inventory_management: 'shopify'
+                                    inventory_quantity: p.variantInventoryQty
+                                    // inventory_management: 'shopify' // Rimosso temporaneamente per evitare errore "Feature is disabled"
                                 }],
-                                images: images.length > 0 ? images : undefined,
-                                // metafields NON supportati qui - vanno inviati separatamente!
+                                images: images.length > 0 ? images : undefined
                             }
                         };
 
                         const response = await axios.post(shopifyUrl, productPayload, {
                             headers: { 'X-Shopify-Access-Token': token },
-                            timeout: 60000 // Aumentato a 60 secondi
+                            timeout: 60000
                         });
 
+                        logger.info(`✅ Prodotto ${p.sku} sincronizzato con successo. Shopify ID: ${response.data?.product?.id}`);
                         productSynced = true;
                         productId = response.data?.product?.id;
                     } catch (e: any) {
@@ -181,11 +196,10 @@ export class ShopifyService {
                         const isTimeout = e.code === 'ECONNABORTED' || e.message.includes('timeout');
 
                         if (isLastAttempt) {
-                            throw e; // Rilancia errore finale
+                            throw e;
                         }
 
-                        // Wait before retry (1s, 2s, etc.)
-                        logger.warn(`Tentativo ${attempts} fallito per ${p.sku}. Riprovo...`);
+                        logger.warn(`Tentativo ${attempts} fallito per ${p.sku}. Errore: ${e.response?.data ? JSON.stringify(e.response.data) : e.message}. Riprovo...`);
                         await new Promise(res => setTimeout(res, 2000 * attempts));
                     }
                 }
@@ -197,7 +211,7 @@ export class ShopifyService {
                     for (const metafield of metafields) {
                         try {
                             await axios.post(
-                                `https://${config.shopUrl}/admin/api/2024-01/products/${productId}/metafields.json`,
+                                `https://${cleanShopUrl}/admin/api/2024-01/products/${productId}/metafields.json`,
                                 {
                                     metafield: {
                                         namespace: metafield.namespace,
@@ -212,17 +226,13 @@ export class ShopifyService {
                                 }
                             );
                             logger.debug(`✅ Metafield ${metafield.namespace}.${metafield.key} sincronizzato`);
-
-                            // Rate limiting: 100ms tra ogni metafield
                             await new Promise(r => setTimeout(r, 100));
                         } catch (metaError: any) {
-                            // Se il metafield esiste già (errore 422), logga ma continua
                             if (metaError.response?.status === 422) {
                                 logger.warn(`⚠️ Metafield ${metafield.namespace}.${metafield.key} già esistente per prodotto ${p.sku}`);
                             } else {
                                 logger.error(`❌ Errore sync metafield ${metafield.namespace}.${metafield.key} per prodotto ${p.sku}:`, metaError.message);
                             }
-                            // Non bloccare il processo per errori sui metafields
                         }
                     }
                     logger.info(`✅ Metafields sincronizzati per prodotto ${p.sku}`);
@@ -234,18 +244,21 @@ export class ShopifyService {
                 });
                 success++;
             } catch (e: any) {
-                logger.error(`Errore upload prodotto ${p.id}:`, e.message);
+                const errorMsg = e.response?.data ? JSON.stringify(e.response.data) : e.message;
+                logger.error(`Errore upload prodotto ${p.id}: ${errorMsg}`);
+
                 await prisma.outputShopify.update({
                     where: { id: p.id },
-                    data: { statoCaricamento: 'error', errorMessage: e.message }
+                    data: { statoCaricamento: 'error', errorMessage: errorMsg }
                 });
                 errors++;
             }
 
             const current = success + errors;
+            const progress = 40 + Math.round((current / products.length) * 60);
             jobProgressManager.updateProgress(
                 jobId,
-                Math.round((current / products.length) * 100),
+                progress,
                 `Sincronizzati ${success} prodotti... (${errors} errori)`
             );
 

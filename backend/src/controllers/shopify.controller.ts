@@ -25,20 +25,18 @@ export const saveConfig = asyncHandler(async (req: AuthRequest, res: Response) =
 
 export const syncProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
     const utenteId = req.utenteId;
-    const { ShopifyExportService } = await import('../services/ShopifyExportService');
 
-    const pendingCount = await prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'pending' } });
+    // Avviamo in background per evitare timeout HTTP (il sync può durare minuti)
+    // ShopifyService.syncProducts gestisce già internamente la creazione del Job e il tracking progresso
+    ShopifyService.syncProducts(utenteId).catch(err => {
+        logger.error(`❌ Errore Background Sync per utente ${utenteId}:`, err.message);
+    });
 
-    let prepared = 0;
-    if (pendingCount === 0) {
-        const exported = await ShopifyExportService.generateExport(utenteId);
-        prepared = exported.length;
-    } else {
-        prepared = pendingCount;
-    }
-
-    const result = await ShopifyService.syncProducts(utenteId);
-    res.json({ success: true, message: 'Sincronizzazione completata', data: { prepared, ...result } });
+    res.json({
+        success: true,
+        message: 'Sincronizzazione avviata in background. Puoi monitorare il progresso nella dashboard.',
+        data: { background: true }
+    });
 });
 
 export const generateExport = asyncHandler(async (req: AuthRequest, res: Response) => {

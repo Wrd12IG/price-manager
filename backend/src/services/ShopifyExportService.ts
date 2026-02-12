@@ -93,10 +93,8 @@ export class ShopifyExportService {
 
                 // Aggiorna progress se jobId è presente (ogni 5 prodotti o alla fine)
                 if (jobId && (processedCount % 5 === 0 || processedCount === totalToProcess)) {
-                    // Mappiamo il progresso tra 75% e 85% della fase globale se siamo nel workflow principale?
-                    // Per semplicità, aggiorniamo solo il messaggio e teniamo la percentuale "base" della fase
-                    // Oppure se è un job dedicato, usiamo 0-100.
-                    jobProgressManager.updateProgress(jobId, undefined, `Generazione export: ${processedCount}/${totalToProcess} prodotti...`);
+                    const progress = Math.round((processedCount / totalToProcess) * 40); // 40% max per la fase di preparazione
+                    jobProgressManager.updateProgress(jobId, progress, `Generazione export: ${processedCount}/${totalToProcess} prodotti...`);
                 }
                 let title = p.nomeProdotto;
                 let vendor = p.marchio?.nome || 'Generico';
