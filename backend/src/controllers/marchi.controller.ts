@@ -9,48 +9,39 @@ import { logger } from '../utils/logger';
  * Controller per gestione Marchi (Multi-Tenant)
  */
 
-// GET /api/marchi - Lista i marchi dell'UTENTE loggato
 export const getMarchi = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { search } = req.query;
+    const { search, attivo } = req.query;
     const utenteId = req.utenteId;
 
     if (!utenteId) throw new AppError('Non autorizzato', 401);
 
-    // Recuperiamo i marchi distinti che hanno ALMENO un prodotto nel MasterFile dell'utente
-    const marchiFromMaster = await prisma.masterFile.findMany({
+    // Recuperiamo tutti i marchi, con il conteggio di utilizzo SPECIFICO per l'utente loggato
+    const marchi = await prisma.marchio.findMany({
         where: {
-            utenteId,
-            marchioId: { not: null },
+            ...(attivo === 'true' ? { attivo: true } : {}),
             ...(search ? {
-                marchio: {
-                    nome: { contains: search as string }
-                }
+                OR: [
+                    { nome: { contains: search as string, mode: 'insensitive' } },
+                    { normalizzato: { contains: (search as string).toUpperCase() } }
+                ]
             } : {})
         },
-        select: {
-            marchio: {
-                include: {
-                    _count: {
-                        select: {
-                            masterFiles: { where: { utenteId } },
-                            regoleMarkup: { where: { utenteId } }
-                        }
-                    }
+        include: {
+            _count: {
+                select: {
+                    masterFiles: { where: { utenteId } },
+                    regoleMarkup: { where: { utenteId } },
+                    filtri: { where: { utenteId } }
                 }
             }
         },
-        distinct: ['marchioId']
+        orderBy: { nome: 'asc' }
     });
-
-    const data = marchiFromMaster
-        .map(m => m.marchio)
-        .filter(Boolean)
-        .sort((a, b) => a.nome.localeCompare(b.nome));
 
     res.json({
         success: true,
-        data: data,
-        total: data.length
+        data: marchi,
+        total: marchi.length
     });
 });
 
@@ -59,26 +50,22 @@ export const getMarchioById = asyncHandler(async (req: AuthRequest, res: Respons
     const { id } = req.params;
     const utenteId = req.utenteId;
 
-    // Verifichiamo che l'utente abbia almeno un prodotto di questo marchio
-    const hasProduct = await prisma.masterFile.findFirst({
-        where: { marchioId: parseInt(id), utenteId }
-    });
-
-    if (!hasProduct) {
-        throw new AppError('Marchio non trovato o non associato ai tuoi prodotti', 404);
-    }
-
     const marchio = await prisma.marchio.findUnique({
         where: { id: parseInt(id) },
         include: {
             _count: {
                 select: {
                     masterFiles: { where: { utenteId } },
-                    regoleMarkup: { where: { utenteId } }
+                    regoleMarkup: { where: { utenteId } },
+                    filtri: { where: { utenteId } }
                 }
             }
         }
     });
+
+    if (!marchio) {
+        throw new AppError('Marchio non trovato', 404);
+    }
 
     res.json({
         success: true,
@@ -116,11 +103,16 @@ export const updateMarchio = asyncHandler(async (req: AuthRequest, res: Response
 
     if (!nome || !nome.trim()) throw new AppError('Il nome del marchio è obbligatorio', 400);
 
-    // Verifica che l'utente abbia almeno un prodotto con questo marchio (ownership)
-    const hasProduct = await prisma.masterFile.findFirst({
-        where: { marchioId: parseInt(id), utenteId }
-    });
-    if (!hasProduct) throw new AppError('Marchio non trovato o non associato ai tuoi prodotti', 403);
+    // Ownership check: l'utente può modificare se ha prodotti con questo marchio
+    // OPPURE se il marchio è NUOVO (non ha prodotti per NESSUN utente)
+    // OPPURE se è admin (utenteId === 1 o ruolo admin)
+    const isAdmin = utenteId === 1 || req.user?.ruolo === 'admin';
+    const hasUserProducts = await prisma.masterFile.findFirst({ where: { marchioId: parseInt(id), utenteId } });
+    const hasGlobalProducts = await prisma.masterFile.findFirst({ where: { marchioId: parseInt(id) } });
+
+    if (!isAdmin && !hasUserProducts && hasGlobalProducts) {
+        throw new AppError('Non hai il permesso di modificare questo marchio (è usato da altri utenti)', 403);
+    }
 
     const normalizzato = nome.trim().toUpperCase();
     const marchio = await prisma.marchio.update({
@@ -138,11 +130,14 @@ export const deleteMarchio = asyncHandler(async (req: AuthRequest, res: Response
 
     const { id } = req.params;
 
-    // Verifica ownership: l'utente deve avere almeno un prodotto con questo marchio
-    const hasProduct = await prisma.masterFile.findFirst({
-        where: { marchioId: parseInt(id), utenteId }
-    });
-    if (!hasProduct) throw new AppError('Marchio non trovato o non associato ai tuoi prodotti', 403);
+    // Verifica permessi per eliminazione (stessa logica di update)
+    const isAdmin = utenteId === 1 || req.user?.ruolo === 'admin';
+    const hasUserProducts = await prisma.masterFile.findFirst({ where: { marchioId: parseInt(id), utenteId } });
+    const hasGlobalProducts = await prisma.masterFile.findFirst({ where: { marchioId: parseInt(id) } });
+
+    if (!isAdmin && !hasUserProducts && hasGlobalProducts) {
+        throw new AppError('Non puoi eliminare un marchio usato da altri utenti', 403);
+    }
 
     // Controlla che non sia usato (prodotti, regole markup, filtri)
     const usageCount = await prisma.marchio.findUnique({
@@ -159,18 +154,22 @@ export const deleteMarchio = asyncHandler(async (req: AuthRequest, res: Response
 
 export const cleanupMarchi = asyncHandler(async (req: AuthRequest, res: Response) => {
     const utenteId = req.utenteId;
-    if (!utenteId) throw new AppError('Non autorizzato', 401);
+    // Solo l'admin può fare cleanup globale
+    if (utenteId !== 1 && req.user?.ruolo !== 'admin') {
+        throw new AppError('Solo gli amministratori possono eseguire il cleanup dei marchi', 403);
+    }
 
-    // Trova marchi che NON hanno prodotti nel masterFile dell'utente
-    const usedMarchioIds = (await prisma.masterFile.findMany({
-        where: { utenteId, marchioId: { not: null } },
+    // Trova marchi che NON hanno prodotti in TUTTO il sistema
+    const marchiInUso = await prisma.masterFile.findMany({
+        where: { marchioId: { not: null } },
         select: { marchioId: true },
         distinct: ['marchioId']
-    })).map(m => m.marchioId!) as number[];
+    });
+    const idsInUso = marchiInUso.map(m => m.marchioId!);
 
-    // Marca come inattivi quelli inutilizzati (non li elimina per sicurezza)
+    // Marca come inattivi quelli che nessuno usa più
     const result = await prisma.marchio.updateMany({
-        where: { id: { notIn: usedMarchioIds }, attivo: true },
+        where: { id: { notIn: idsInUso }, attivo: true },
         data: { attivo: false }
     });
 

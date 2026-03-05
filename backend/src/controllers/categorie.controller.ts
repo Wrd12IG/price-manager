@@ -9,48 +9,39 @@ import { logger } from '../utils/logger';
  * Controller per gestione Categorie (Multi-Tenant)
  */
 
-// GET /api/categorie - Lista le categorie dell'UTENTE loggato
 export const getCategorie = asyncHandler(async (req: AuthRequest, res: Response) => {
-    const { search } = req.query;
+    const { search, attivo } = req.query;
     const utenteId = req.utenteId;
 
     if (!utenteId) throw new AppError('Non autorizzato', 401);
 
-    // Recuperiamo le categorie distinte che hanno ALMENO un prodotto nel MasterFile dell'utente
-    const categoriesFromMaster = await prisma.masterFile.findMany({
+    // Recuperiamo tutte le categorie, con conteggio specifico per l'utente loggato
+    const categorie = await prisma.categoria.findMany({
         where: {
-            utenteId,
-            categoriaId: { not: null },
+            ...(attivo === 'true' ? { attivo: true } : {}),
             ...(search ? {
-                categoria: {
-                    nome: { contains: search as string }
-                }
+                OR: [
+                    { nome: { contains: search as string, mode: 'insensitive' } },
+                    { normalizzato: { contains: (search as string).toUpperCase() } }
+                ]
             } : {})
         },
-        select: {
-            categoria: {
-                include: {
-                    _count: {
-                        select: {
-                            masterFiles: { where: { utenteId } },
-                            regoleMarkup: { where: { utenteId } }
-                        }
-                    }
+        include: {
+            _count: {
+                select: {
+                    masterFiles: { where: { utenteId } },
+                    regoleMarkup: { where: { utenteId } },
+                    filtri: { where: { utenteId } }
                 }
             }
         },
-        distinct: ['categoriaId']
+        orderBy: { nome: 'asc' }
     });
-
-    const data = categoriesFromMaster
-        .map(c => c.categoria)
-        .filter(Boolean)
-        .sort((a, b) => a.nome.localeCompare(b.nome));
 
     res.json({
         success: true,
-        data: data,
-        total: data.length
+        data: categorie,
+        total: categorie.length
     });
 });
 
@@ -59,26 +50,22 @@ export const getCategoriaById = asyncHandler(async (req: AuthRequest, res: Respo
     const { id } = req.params;
     const utenteId = req.utenteId;
 
-    // Verifichiamo che l'utente abbia almeno un prodotto di questa categoria
-    const hasProduct = await prisma.masterFile.findFirst({
-        where: { categoriaId: parseInt(id), utenteId }
-    });
-
-    if (!hasProduct) {
-        throw new AppError('Categoria non trovata o non associata ai tuoi prodotti', 404);
-    }
-
     const categoria = await prisma.categoria.findUnique({
         where: { id: parseInt(id) },
         include: {
             _count: {
                 select: {
                     masterFiles: { where: { utenteId } },
-                    regoleMarkup: { where: { utenteId } }
+                    regoleMarkup: { where: { utenteId } },
+                    filtri: { where: { utenteId } }
                 }
             }
         }
     });
+
+    if (!categoria) {
+        throw new AppError('Categoria non trovata', 404);
+    }
 
     res.json({
         success: true,
@@ -116,11 +103,14 @@ export const updateCategoria = asyncHandler(async (req: AuthRequest, res: Respon
 
     if (!nome || !nome.trim()) throw new AppError('Il nome della categoria è obbligatorio', 400);
 
-    // Verifica ownership: l'utente deve avere almeno un prodotto con questa categoria
-    const hasProduct = await prisma.masterFile.findFirst({
-        where: { categoriaId: parseInt(id), utenteId }
-    });
-    if (!hasProduct) throw new AppError('Categoria non trovata o non associata ai tuoi prodotti', 403);
+    // Ownership check logic
+    const isAdmin = utenteId === 1 || req.user?.ruolo === 'admin';
+    const hasUserProducts = await prisma.masterFile.findFirst({ where: { categoriaId: parseInt(id), utenteId } });
+    const hasGlobalProducts = await prisma.masterFile.findFirst({ where: { categoriaId: parseInt(id) } });
+
+    if (!isAdmin && !hasUserProducts && hasGlobalProducts) {
+        throw new AppError('Non hai il permesso di modificare questa categoria (è usata da altri utenti)', 403);
+    }
 
     const normalizzato = nome.trim().toUpperCase();
     const categoria = await prisma.categoria.update({
@@ -138,11 +128,14 @@ export const deleteCategoria = asyncHandler(async (req: AuthRequest, res: Respon
 
     const { id } = req.params;
 
-    // Verifica ownership
-    const hasProduct = await prisma.masterFile.findFirst({
-        where: { categoriaId: parseInt(id), utenteId }
-    });
-    if (!hasProduct) throw new AppError('Categoria non trovata o non associata ai tuoi prodotti', 403);
+    // Ownership check logic for deletion
+    const isAdmin = utenteId === 1 || req.user?.ruolo === 'admin';
+    const hasUserProducts = await prisma.masterFile.findFirst({ where: { categoriaId: parseInt(id), utenteId } });
+    const hasGlobalProducts = await prisma.masterFile.findFirst({ where: { categoriaId: parseInt(id) } });
+
+    if (!isAdmin && !hasUserProducts && hasGlobalProducts) {
+        throw new AppError('Non puoi eliminare una categoria usata da altri utenti', 403);
+    }
 
     // Controlla che non sia usata
     const usageCount = await prisma.categoria.findUnique({
@@ -155,4 +148,26 @@ export const deleteCategoria = asyncHandler(async (req: AuthRequest, res: Respon
     await prisma.categoria.delete({ where: { id: parseInt(id) } });
     logger.info(`Categoria eliminata da utente ${utenteId}: ID ${id}`);
     res.json({ success: true, message: 'Categoria eliminata' });
+});
+
+export const cleanupCategorie = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const utenteId = req.utenteId;
+    if (utenteId !== 1 && req.user?.ruolo !== 'admin') {
+        throw new AppError('Solo gli amministratori possono eseguire il cleanup delle categorie', 403);
+    }
+
+    const categorieInUso = await prisma.masterFile.findMany({
+        where: { categoriaId: { not: null } },
+        select: { categoriaId: true },
+        distinct: ['categoriaId']
+    });
+    const idsInUso = categorieInUso.map(c => c.categoriaId!);
+
+    const result = await prisma.categoria.updateMany({
+        where: { id: { notIn: idsInUso }, attivo: true },
+        data: { attivo: false }
+    });
+
+    logger.info(`Cleanup categorie: disattivate ${result.count} categorie inutilizzate`);
+    res.json({ success: true, message: `Disattivate ${result.count} categorie non utilizzate`, data: { count: result.count } });
 });
