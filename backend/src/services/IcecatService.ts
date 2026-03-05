@@ -62,6 +62,13 @@ export class IcecatService {
         return { username: u || '', configured: !!(u && p) };
     }
 
+    public static async fetchByEan(utenteId: number, ean: string): Promise<any> {
+        const credentials = await this.getCredentials(utenteId);
+        const data = await this.fetchProductData(ean, credentials);
+        if (!data) return null;
+        return this.extractProductData(data);
+    }
+
     public static async fetchProductData(ean: string, credentials: { username: string; password: string }, mpn?: string, brand?: string): Promise<any> {
         let url = `${this.API_BASE_URL}?ean_upc=${ean}&lang=${this.DEFAULT_LANGUAGE}&output_product_xml=1`;
 

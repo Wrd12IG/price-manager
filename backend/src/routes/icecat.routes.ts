@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getConfig, saveConfig, enrichProducts, getEnriched, getProgress, exportCSV, exportJSON, exportHTML } from '../controllers/icecat.controller';
+import { getConfig, saveConfig, enrichProducts, getEnriched, getProgress, exportCSV, exportJSON, exportHTML, fetchByEan } from '../controllers/icecat.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -9,6 +9,7 @@ router.use(authMiddleware);
 
 router.get('/config', getConfig);
 router.post('/config', saveConfig);
+router.get('/fetch/:ean', fetchByEan);
 router.post('/enrich', enrichProducts);
 router.get('/enriched', getEnriched);
 router.get('/progress', getProgress);

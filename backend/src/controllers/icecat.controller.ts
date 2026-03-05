@@ -5,6 +5,18 @@ import { asyncHandler, AppError } from '../middleware/errorHandler';
 import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth.middleware';
 
+export const fetchByEan = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const utenteId = req.utenteId;
+  if (!utenteId) throw new AppError('Non autorizzato', 401);
+  const { ean } = req.params;
+  if (!ean) throw new AppError('EAN obbligatorio', 400);
+
+  const data = await IcecatService.fetchByEan(utenteId, ean);
+  if (!data) return res.status(404).json({ success: false, message: 'Prodotto non trovato su Icecat' });
+
+  res.json({ success: true, data });
+});
+
 /**
  * Controller per la gestione di Icecat - Multi-Tenant
  */

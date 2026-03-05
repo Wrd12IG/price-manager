@@ -28,6 +28,7 @@ import settingsRoutes from './routes/settings.routes';
 import aiRoutes from './routes/ai.routes';
 import normalizationRoutes from './routes/normalization.routes';
 import advancedRoutes from './routes/advanced.routes';
+import manualProductRoutes from './routes/manualProduct.routes';
 
 // Load environment variables
 dotenv.config();
@@ -179,6 +180,7 @@ app.use('/api/categorie', categorieRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/normalization', normalizationRoutes);
+app.use('/api/manual-product', manualProductRoutes);
 
 // ─── #13 #14 #15 Advanced Features ───
 app.use('/api/master-file', advancedRoutes);  // Duplicate detection

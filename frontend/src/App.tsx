@@ -23,6 +23,7 @@ import Profile from './pages/Profile';
 import AdminPanel from './pages/AdminPanel';
 import Login from './pages/Login';
 import Normalization from './pages/Normalization';
+import ManualProduct from './pages/ManualProduct';
 
 // Layout
 import Layout from './components/Layout';
@@ -132,6 +133,11 @@ function AppRoutes() {
             <Route path="/categorie" element={
                 <ProtectedRoute>
                     <Layout><Categorie /></Layout>
+                </ProtectedRoute>
+            } />
+            <Route path="/manual-product" element={
+                <ProtectedRoute>
+                    <Layout><ManualProduct /></Layout>
                 </ProtectedRoute>
             } />
             <Route path="/normalization" element={

@@ -34,6 +34,7 @@ import {
     Folder as FolderIcon,
     AdminPanelSettings as AdminIcon,
     AutoFixHigh as NormalizationIcon,
+    Add as AddIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 
@@ -57,6 +58,7 @@ const menuItems: MenuItemType[] = [
     { text: 'Regole Pricing', icon: <PriceIcon />, path: '/pricing' },
     { text: 'Filtri Prodotti', icon: <FilterIcon />, path: '/filters' },
     { text: 'Master File', icon: <InventoryIcon />, path: '/master-file' },
+    { text: 'Prodotti BTO', icon: <AddIcon />, path: '/manual-product' },
     { text: 'Integrazioni', icon: <IntegrationIcon />, path: '/integrazioni' },
     { text: 'Pianificazione', icon: <ScheduleIcon />, path: '/scheduler' },
     { text: 'Log e Monitoraggio', icon: <LogIcon />, path: '/logs' },
