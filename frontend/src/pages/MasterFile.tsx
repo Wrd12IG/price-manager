@@ -21,7 +21,14 @@ import {
     DialogContent,
     DialogContentText,
     DialogActions,
-    Grid
+    Grid,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
+    Alert,
+    LinearProgress,
+    Badge,
+    IconButton
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -31,7 +38,11 @@ import {
     Image as ImageIcon,
     CheckCircle as CheckIcon,
     History as HistoryIcon,
-    Memory as MemoryIcon
+    Memory as MemoryIcon,
+    ContentCopy as DuplicateIcon,
+    ExpandMore as ExpandMoreIcon,
+    Block as IgnoreIcon,
+    TrendingUp as TrendingIcon
 } from '@mui/icons-material';
 import { FormControl, InputLabel, Select, MenuItem, FormControlLabel, Switch } from '@mui/material';
 import api from '../utils/api';
@@ -92,6 +103,12 @@ export default function MasterFile() {
         fornitoreId: '',
         soloDisponibili: false
     });
+
+    // #13 — Duplicate Detection State
+    const [duplicateGroups, setDuplicateGroups] = useState<any[]>([]);
+    const [duplicateLoading, setDuplicateLoading] = useState(false);
+    const [duplicateThreshold, setDuplicateThreshold] = useState(0.82);
+    const [ignoringPairs, setIgnoringPairs] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         fetchProducts();
@@ -194,6 +211,35 @@ export default function MasterFile() {
         setPage(0);
     };
 
+    // #13 — Duplicate Detection handlers
+    const fetchDuplicates = async () => {
+        setDuplicateLoading(true);
+        try {
+            const res = await api.get('/master-file/duplicates', { params: { threshold: duplicateThreshold, limit: 50 } });
+            setDuplicateGroups(res.data?.data?.groups || []);
+            const count = res.data?.data?.total || 0;
+            if (count === 0) toast.info('Nessun duplicato rilevato con la soglia attuale.');
+            else toast.warning(`🔍 Trovati ${count} potenziali duplicati da verificare.`);
+        } catch (e: any) {
+            toast.error(`Errore: ${e.response?.data?.error || e.message}`);
+        } finally {
+            setDuplicateLoading(false);
+        }
+    };
+
+    const handleIgnorePair = async (groupId: string, idA: number, idB: number) => {
+        setIgnoringPairs(prev => new Set(prev).add(groupId));
+        try {
+            await api.post('/master-file/duplicates/ignore', { productIdA: idA, productIdB: idB });
+            setDuplicateGroups(prev => prev.filter(g => g.groupId !== groupId));
+            toast.success('Coppia ignorata — non verrà più segnalata.');
+        } catch (e: any) {
+            toast.error(`Errore: ${e.response?.data?.error || e.message}`);
+        } finally {
+            setIgnoringPairs(prev => { const s = new Set(prev); s.delete(groupId); return s; });
+        }
+    };
+
     return (
         <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
@@ -206,13 +252,20 @@ export default function MasterFile() {
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 2 }}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<RefreshIcon />}
-                        onClick={fetchProducts}
-                    >
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchProducts}>
                         Ricarica Vista
                     </Button>
+                    <Badge badgeContent={duplicateGroups.length || null} color="warning">
+                        <Button
+                            variant="outlined"
+                            color="warning"
+                            startIcon={duplicateLoading ? <CircularProgress size={18} color="inherit" /> : <DuplicateIcon />}
+                            onClick={fetchDuplicates}
+                            disabled={duplicateLoading}
+                        >
+                            Rileva Duplicati
+                        </Button>
+                    </Badge>
                     <Button
                         variant="contained"
                         startIcon={consolidating ? <CircularProgress size={20} color="inherit" /> : <MergeIcon sx={{ color: '#FFD700' }} />}
@@ -224,7 +277,79 @@ export default function MasterFile() {
                 </Box>
             </Box>
 
-            {/* Consolidate Confirmation Dialog */}
+            {/* #13 — Duplicate Detection Panel */}
+            {duplicateGroups.length > 0 && (
+                <Accordion defaultExpanded variant="outlined" sx={{ mb: 3, borderColor: 'warning.main', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <DuplicateIcon color="warning" />
+                            <Typography fontWeight={700} color="warning.dark">
+                                🔍 {duplicateGroups.length} Potenziali Duplicati Rilevati
+                            </Typography>
+                            <Chip label="Verifica manuale richiesta" size="small" color="warning" variant="outlined" />
+                        </Box>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ p: 0 }}>
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow sx={{ backgroundColor: '#fffbeb' }}>
+                                    <TableCell sx={{ fontWeight: 700 }}>Motivo</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>Score</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>Prodotto A</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>Prodotto B</TableCell>
+                                    <TableCell sx={{ fontWeight: 700 }}>Azioni</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {duplicateGroups.map(group => (
+                                    <TableRow key={group.groupId} hover>
+                                        <TableCell><Typography variant="caption" color="warning.dark" fontWeight={600}>{group.reason}</Typography></TableCell>
+                                        <TableCell>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <LinearProgress
+                                                    variant="determinate"
+                                                    value={Math.round(group.score * 100)}
+                                                    color={group.score >= 0.90 ? 'error' : 'warning'}
+                                                    sx={{ width: 60, height: 6, borderRadius: 3 }}
+                                                />
+                                                <Typography variant="caption" fontWeight={700}>{(group.score * 100).toFixed(0)}%</Typography>
+                                            </Box>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" fontWeight={600} noWrap sx={{ maxWidth: 220 }}>
+                                                {group.products[0]?.nomeProdotto?.substring(0, 60) || 'N/D'}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                {group.products[0]?.marchio?.nome} · {group.products[0]?.partNumber || group.products[0]?.eanGtin}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" fontWeight={600} noWrap sx={{ maxWidth: 220 }}>
+                                                {group.products[1]?.nomeProdotto?.substring(0, 60) || 'N/D'}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                {group.products[1]?.marchio?.nome} · {group.products[1]?.partNumber || group.products[1]?.eanGtin}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Tooltip title="Ignora — non sono duplicati">
+                                                <IconButton
+                                                    size="small"
+                                                    disabled={ignoringPairs.has(group.groupId)}
+                                                    onClick={() => handleIgnorePair(group.groupId, group.products[0].id, group.products[1].id)}
+                                                >
+                                                    {ignoringPairs.has(group.groupId) ? <CircularProgress size={14} /> : <IgnoreIcon fontSize="small" />}
+                                                </IconButton>
+                                            </Tooltip>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </AccordionDetails>
+                </Accordion>
+            )}
+
             <Dialog
                 open={confirmOpen}
                 onClose={handleCloseConsolidateDialog}

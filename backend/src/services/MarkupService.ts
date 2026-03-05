@@ -48,30 +48,58 @@ export class MarkupService {
 
             logger.info(`📋 Trovate ${rules.length} regole di pricing attive per utente ${utenteId}`);
 
-            // 3. Applica pricing
-            const BATCH_SIZE = 100;
+            // 3. Applica pricing in bulk via transactions
+            const BATCH_SIZE = 500; // Alziamo il batch a 500
             for (let i = 0; i < products.length; i += BATCH_SIZE) {
                 const batch = products.slice(i, i + BATCH_SIZE);
-                await Promise.all(batch.map(async (product) => {
+                const updates = [];
+
+                for (const product of batch) {
                     try {
                         const bestRule = this.findBestRule(product, rules);
                         const prezzoVendita = bestRule
                             ? this.calculatePrice(product.prezzoAcquistoMigliore, bestRule.markupPercentuale, bestRule.markupFisso, bestRule.costoSpedizione)
                             : Math.ceil(product.prezzoAcquistoMigliore);
 
-                        await prisma.masterFile.update({
-                            where: { id: product.id },
-                            data: {
-                                prezzoVenditaCalcolato: prezzoVendita,
-                                regolaMarkupId: bestRule ? bestRule.id : null
-                            }
-                        });
+                        updates.push(
+                            prisma.masterFile.update({
+                                where: { id: product.id },
+                                data: {
+                                    prezzoVenditaCalcolato: prezzoVendita,
+                                    regolaMarkupId: bestRule ? bestRule.id : null
+                                }
+                            })
+                        );
+
+                        // 📈 Scrivi storico prezzo solo se cambiato
+                        const oldPrice = product.prezzoVenditaCalcolato || 0;
+                        if (Math.abs(oldPrice - prezzoVendita) >= 0.01) {
+                            updates.push(
+                                prisma.priceHistory.create({
+                                    data: {
+                                        masterFileId: product.id,
+                                        utenteId,
+                                        prezzoVecchio: oldPrice,
+                                        prezzoNuovo: prezzoVendita,
+                                        prezzoAcquisto: product.prezzoAcquistoMigliore,
+                                        markupPercentuale: bestRule?.markupPercentuale ?? null,
+                                        regolaApplicata: bestRule ? `${bestRule.tipoRegola}#${bestRule.id}` : 'default'
+                                    }
+                                })
+                            );
+                        }
+
                         updated++;
                     } catch (error) {
                         logger.error(`Errore pricing prodotto ${product.id} per utente ${utenteId}:`, error);
                         errors++;
                     }
-                }));
+                }
+
+
+                if (updates.length > 0) {
+                    await prisma.$transaction(updates);
+                }
             }
 
             const duration = ((Date.now() - startTime) / 1000).toFixed(2);

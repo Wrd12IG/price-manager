@@ -33,7 +33,7 @@ export class AIMetafieldService {
 
         try {
             const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
+            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
             const icecat = product.datiIcecat;
             const features = icecat?.specificheTecnicheJson ? JSON.parse(icecat.specificheTecnicheJson) : [];
             const bullets = icecat?.bulletPointsJson ? JSON.parse(icecat.bulletPointsJson) : [];
@@ -71,6 +71,9 @@ EAN|[codice 13 cifre, lascia vuoto se non disponibile]
 Descrizione Breve|[max 150 caratteri, accattivante]
 Descrizione Lunga|[300-500 parole, SEO-friendly, strutturata in 4 paragrafi: Intro, Specifiche, Utilizzi, Conclusione]
 Tabella Specifiche|[HTML table completo con tutte le specifiche, stile pulito]
+Titolo SEO Ottimizzato|[Titolo del prodotto riscritto, accattivante e keyword-rich, max 80 caratteri]
+SEO Title Tag|[Tag title ottimizzato per Google, max 60 caratteri]
+SEO Meta Description|[Meta description per Google, focus commerciale, max 160 caratteri]
 
 REGOLE:
 - Formato OUTPUT: Campo|Valore (separatore pipe |)
@@ -104,7 +107,10 @@ OUTPUT (solo i dati, senza preamble):`;
                 "EAN": "custom.ean",
                 "Descrizione Breve": "custom.descrizione_breve",
                 "Descrizione Lunga": "custom.descrizione_lunga",
-                "Tabella Specifiche": "custom.tabella_specifiche"
+                "Tabella Specifiche": "custom.tabella_specifiche",
+                "Titolo SEO Ottimizzato": "seo.titolo_ottimizzato",
+                "SEO Title Tag": "seo.title_tag",
+                "SEO Meta Description": "seo.meta_description"
             };
 
             for (const line of lines) {

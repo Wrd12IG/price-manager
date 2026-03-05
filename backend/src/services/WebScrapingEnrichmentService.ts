@@ -154,10 +154,19 @@ export class WebScrapingEnrichmentService {
 
         const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-        // Pulisci l'HTML per ridurre la dimensione
+        // Pulizia drastica e intelligente del DOM
         const $ = cheerio.load(html);
-        $('script, style, nav, footer, header').remove();
-        const cleanedHtml = $.html().substring(0, 50000); // Limita a 50k caratteri
+
+        // Rimuoviamo tag non visibili ed extra
+        $('script, style, noscript, svg, path, iframe, img, head, nav, footer, header, meta, link, button, form, .cookie, #cookie-banner').remove();
+        $('p, div, br, li, h1, h2, h3, h4, h5, h6, td, th').append(' ');
+
+        // Estrazione testo puro
+        let textContent = $('body').text()
+            .replace(/\\s+/g, ' ')
+            .trim();
+
+        const cleanedContent = textContent.substring(0, 50000); // 50k caratteri bastano per ~6000 parole
 
         const prompt = `Analizza questa pagina web di un prodotto e estrai le seguenti informazioni in formato JSON:
 
@@ -165,8 +174,8 @@ EAN: ${ean}
 Nome Prodotto: ${nomeProdotto || 'N/D'}
 Marchio: ${marchio || 'N/D'}
 
-HTML della pagina:
-${cleanedHtml}
+TESTO TESTUALE DELLA PAGINA:
+${cleanedContent}
 
 Estrai e restituisci SOLO un oggetto JSON valido con questa struttura (senza markdown, senza backticks):
 {

@@ -264,6 +264,7 @@ model MasterFile {
   regolaMarkupApplicata   RegolaMarkup?  @relation(fields: [regolaMarkupId], references: [id])
   utente                  Utente         @relation(fields: [utenteId], references: [id], onDelete: Cascade)
   outputShopify           OutputShopify?
+  priceHistory            PriceHistory[]
 
   @@unique([utenteId, eanGtin])
   @@index([fornitoreSelezionatoId])
@@ -318,6 +319,9 @@ model OutputShopify {
   statoCaricamento      String     @default("pending")
   errorMessage          String?
   shopifyProductId      String?
+  isAiEnriched          Boolean    @default(false)
+  aiReviewStatus        String?                          // #15: 'pending'|'approved'|'flagged'|'skipped'
+  aiReviewJson          String?                          // #15: JSON con issues, score, feedback
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
   masterFile            MasterFile @relation(fields: [masterFileId], references: [id], onDelete: Cascade)
@@ -326,6 +330,9 @@ model OutputShopify {
   @@index([dataGenerazione])
   @@index([utenteId])
   @@index([utenteId, statoCaricamento])
+  @@index([isAiEnriched])
+  @@index([utenteId, isAiEnriched])
+  @@index([aiReviewStatus])
   @@map("output_shopify")
 }
 
@@ -424,4 +431,43 @@ model FilterPreset {
 
   @@index([utenteId])
   @@map("filter_presets")
+}
+
+model PriceHistory {
+  id                    Int        @id @default(autoincrement())
+  masterFileId          Int
+  utenteId              Int
+  prezzoVecchio         Float
+  prezzoNuovo           Float
+  prezzoAcquisto        Float
+  markupPercentuale     Float?
+  regolaApplicata       String?
+  createdAt             DateTime   @default(now())
+  masterFile            MasterFile @relation(fields: [masterFileId], references: [id], onDelete: Cascade)
+
+  @@index([masterFileId])
+  @@index([utenteId])
+  @@index([createdAt])
+  @@map("price_history")
+}
+
+// #14: Prezzi competitor per intelligence di pricing
+model CompetitorPrice {
+  id            Int        @id @default(autoincrement())
+  utenteId      Int
+  masterFileId  Int?
+  eanGtin       String?
+  partNumber    String?
+  source        String                        // es. 'amazon','mediaworld','manuale'
+  sourceLabel   String?
+  prezzoRilevato Float
+  url           String?
+  rilevatoAt    DateTime   @default(now())
+  createdAt     DateTime   @default(now())
+
+  @@index([utenteId])
+  @@index([eanGtin])
+  @@index([masterFileId])
+  @@index([rilevatoAt])
+  @@map("competitor_prices")
 }

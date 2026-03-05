@@ -74,7 +74,7 @@ export class EnhancedMetafieldService {
             baseUrl: 'https://www.mediaworld.it',
             searchUrl: (query: string) => `https://www.mediaworld.it/search?q=${encodeURIComponent(query)}`,
             productSelector: 'a[href*="/product/"]',
-            trustScore: 9 // Affidabilità del sito (1-10)
+            trustScore: 9
         },
         {
             name: 'AsusStore',
@@ -351,25 +351,29 @@ export class EnhancedMetafieldService {
 
     /**
      * Valida che il prodotto web corrisponda al 100% con quello del database
+     * 
+     * Logica: l'EAN o il Part Number devono apparire letteralmente nel testo della pagina.
+     * Non usare il nome del marchio come criterio: è fragile e genererebbe falsi negativi
+     * per prodotti con nomi di marca non standard o abbreviati.
      */
     private static async validateProduct(html: string, product: ProductData): Promise<boolean> {
         const $ = cheerio.load(html);
         const pageText = $('body').text().toLowerCase();
 
-        // Validazione EAN (massima priorità)
+        // Validazione primaria: EAN presente nella pagina
         if (product.eanGtin && pageText.includes(product.eanGtin.toLowerCase())) {
-            logger.info(`✅ Validazione EAN OK: ${product.eanGtin}`);
+            logger.info(`✅ Validazione EAN OK: ${product.eanGtin} trovato nella pagina`);
             return true;
         }
 
-        // Validazione Part Number
-        if (product.partNumber && pageText.includes(product.partNumber.toLowerCase())) {
-            logger.info(`✅ Validazione Part Number OK: ${product.partNumber}`);
+        // Validazione secondaria: Part Number presente nella pagina
+        if (product.partNumber && product.partNumber.length > 4 && pageText.includes(product.partNumber.toLowerCase())) {
+            logger.info(`✅ Validazione Part Number OK: ${product.partNumber} trovato nella pagina`);
             return true;
         }
 
-        // Se né EAN né Part Number sono trovati, NON è valido
-        logger.warn(`⚠️ Validazione FALLITA: EAN o Part Number non trovati nella pagina`);
+        // Nessun identificatore univoco trovato → prodotto sbagliato
+        logger.warn(`⚠️ Validazione FALLITA per EAN ${product.eanGtin}: né EAN né Part Number trovati nella pagina → prodotto scartato`);
         return false;
     }
 
@@ -389,10 +393,24 @@ export class EnhancedMetafieldService {
 
         const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-        // Pulisci HTML
+        // Pulizia drastica e intelligente del DOM
         const $ = cheerio.load(html);
-        $('script, style, nav, footer, header, .cookie').remove();
-        const cleanedHtml = $.html().substring(0, 40000);
+
+        // Rimuoviamo tutto ciò che è invisibile, pesante o irrilevante (SVG giganteschi, header, form)
+        $('script, style, noscript, svg, path, iframe, img, head, nav, footer, header, meta, link, button, form, .cookie, #cookie-banner').remove();
+
+        // Per evitare che il testo estratto collassi (es. "CPU7Core" invece di "CPU 7 Core"),
+        // costringiamo cheerio a separare i blocchi visivi
+        $('p, div, br, li, h1, h2, h3, h4, h5, h6, td, th').append(' ');
+
+        // Estrazione esclusiva del testo (ignora i tag e gli attributi che pesano l'80% di una pagina web)
+        let textContent = $('body').text()
+            .replace(/\\s+/g, ' ')
+            .trim();
+
+        // Ora i nostri 40.000 caratteri sono TESTO e non codice. 40k di testo corrispondono a ~5000 parole
+        // che coprono abbondantemente il 100% di ogni singola scheda descrittiva sul web, fino in fondo.
+        const cleanedContent = textContent.substring(0, 40000);
 
         const prompt = `Analizza questa pagina web di un prodotto e-commerce ed estrai SOLO informazioni verificabili al 100%.
 
@@ -402,8 +420,8 @@ PRODOTTO DA VALIDARE:
 - Nome: ${product.nomeProdotto || 'N/D'}
 - Marca: ${product.marchio?.nome || 'N/D'}
 
-HTML PAGINA:
-${cleanedHtml}
+TESTO TESTUALE DELLA PAGINA:
+${cleanedContent}
 
 REGOLE CRITICHE:
 1. Verifica che l'EAN o Part Number corrisponda ESATTAMENTE

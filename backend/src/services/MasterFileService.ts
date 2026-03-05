@@ -243,8 +243,8 @@ export class MasterFileService {
         const icecatBackup = new Map<string, any>();
         existingIcecatData.forEach(d => { if (d.eanGtin) icecatBackup.set(d.eanGtin, d); });
 
-        // 2. SVUOTA MASTERFILE UTENTE
-        await prisma.masterFile.deleteMany({ where: { utenteId } });
+        // 2. LA CANCELLAZIONE AVVERRA' ALL'INTERNO DELLA TRANSAZIONE UNICA
+        // Non facciamo più deleteMany qui per evitare un catalogo vuoto se l'operazione fallisce a metà
 
         // 3. CACHE MARCHI E CATEGORIE
         const marchiMap = new Map<string, number>();
@@ -338,10 +338,22 @@ export class MasterFileService {
             } catch (e) { }
         }
 
+        // 5. PREPARA INSERIMENTO IN UN'UNICA TRANSAZIONE SICURA
+        const transactions = [];
+
+        // Prima operazione: cancella il master file vecchio
+        transactions.push(prisma.masterFile.deleteMany({ where: { utenteId } }));
+
         const batchSize = 500;
         for (let i = 0; i < dataToInsert.length; i += batchSize) {
-            await prisma.masterFile.createMany({ data: dataToInsert.slice(i, i + batchSize) });
+            transactions.push(
+                prisma.masterFile.createMany({ data: dataToInsert.slice(i, i + batchSize) })
+            );
         }
+
+        // Esegue tutte le operazioni (cancellazione + inserimento) in un colpo solo. 
+        // Se c'è un crash, nulla viene cancellato.
+        await prisma.$transaction(transactions);
 
         // 6. RIPRISTINO DATI ICECAT
         if (icecatBackup.size > 0) {
@@ -367,7 +379,7 @@ export class MasterFileService {
             }).filter(x => x !== null) as any[];
 
             for (let i = 0; i < toRestore.length; i += batchSize) {
-                await prisma.datiIcecat.createMany({ data: toRestore.slice(i, i + batchSize) });
+                await prisma.datiIcecat.createMany({ data: toRestore.slice(i, i + batchSize), skipDuplicates: true });
             }
         }
     }

@@ -52,7 +52,7 @@ export class SimpleAIEnrichmentService {
 
         const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-        const prompt = `Sei un esperto di prodotti tecnologici. Genera informazioni dettagliate per questo prodotto basandoti sui dati disponibili:
+        const prompt = `Sei un esperto di prodotti tecnologici. Stai generando dati per un e-commerce.
 
 EAN: ${ean}
 Nome Prodotto: ${nomeProdotto || 'Non disponibile'}
@@ -61,38 +61,21 @@ Categoria: ${categoria || 'Non disponibile'}
 
 Genera un oggetto JSON con le seguenti informazioni (senza markdown, senza backticks):
 {
-  "descrizioneBrave": "Descrizione breve e accattivante del prodotto (max 160 caratteri)",
-  "descrizioneLunga": "Descrizione dettagliata del prodotto (2-3 paragrafi). Includi caratteristiche tipiche di prodotti ${marchio || 'di questa categoria'} nella categoria ${categoria || 'tecnologia'}. Sii specifico e professionale.",
-  "specificheTecniche": {
-    "Processore": "Specifica tipica per ${categoria || 'questo tipo di prodotto'}",
-    "RAM": "Specifica tipica",
-    "Storage": "Specifica tipica",
-    "Display": "Specifica tipica se applicabile",
-    "Scheda Grafica": "Specifica tipica se applicabile",
-    "Sistema Operativo": "Sistema operativo tipico",
-    "Connettività": "Connettività tipica",
-    "Porte": "Porte tipiche"
-  },
+  "descrizioneBrave": "Descrizione breve e accattivante del prodotto (max 160 caratteri). Basa il testo SOLO sulle informazioni del titolo.",
+  "descrizioneLunga": "Descrizione base del prodotto (1-2 paragrafi). Non parlare di componenti che non sono menzionati nel titolo. Esalta semplicemente il brand se conosciuto e la sua categoria generica.",
+  "specificheTecniche": {},
   "bulletPoints": [
-    "Caratteristica chiave 1 tipica di ${marchio || 'prodotti di qualità'}",
-    "Caratteristica chiave 2",
-    "Caratteristica chiave 3",
-    "Caratteristica chiave 4",
-    "Caratteristica chiave 5"
+    "Punto di forza generico per macchine di questo tipo",
+    "Punto di forza generico tratto dal titolo"
   ],
-  "caratteristichePrincipali": {
-    "Tipo PC": "Tipo basato su ${categoria || 'categoria'}",
-    "Rapporto Aspetto": "Rapporto tipico",
-    "Tipo Processore": "Tipo processore tipico",
-    "Tipo Storage": "Tipo storage tipico"
-  }
+  "caratteristichePrincipali": {}
 }
 
-IMPORTANTE: 
-- Restituisci SOLO il JSON, senza testo aggiuntivo
-- Non usare markdown o backticks
-- Sii realistico e professionale
-- Basa le specifiche sulla categoria e sul marchio forniti`;
+IMPORTANTE E TASSATIVO: 
+- Restituisci SOLO il JSON nudo, senza markdown (\`\`\`json) e senza backticks.
+- È ASSOLUTAMENTE VIETATO inventare specifiche tecniche numeriche o modelli (es. Processore, RAM, Storage, Scheda Grafica, Dimensioni, ecc.) se non sono ESPLICITAMENTE e CHIARAMENTE scritte alla lettera nel Nome Prodotto (Titolo).
+- Piuttosto che inventare o "dedurre" una specifica tecnica o una porta USB, LASCIA L'OGGETTO "specificheTecniche" VUOTO o valorizza i campi a null/stringa vuota. Le finte specifiche causano resi.
+- Basa il testo descrittivo in modo generico sulla categoria e sul marchio.`;
 
         try {
             const result = await model.generateContent(prompt);

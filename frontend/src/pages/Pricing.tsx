@@ -29,8 +29,14 @@ import {
     Add as AddIcon,
     Delete as DeleteIcon,
     TrendingUp as TrendingUpIcon,
+    QueryStats as QueryStatsIcon,
+    AutoAwesome as AutoAwesomeIcon,
+    CheckCircle as CheckCircleIcon,
+    Warning as WarningIcon,
+    Close as CloseIcon,
 } from '@mui/icons-material';
-import { Card, CardContent } from '@mui/material';
+import { Card, CardContent, Alert, Tooltip, InputAdornment, Accordion, AccordionSummary, AccordionDetails, LinearProgress } from '@mui/material';
+import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import api from '../utils/api';
 import { toast } from 'react-toastify';
 
@@ -93,6 +99,20 @@ export default function Pricing() {
         markupP: 30,
         extra: 0
     });
+
+    // #14 — Competitive Pricing State
+    const [competitiveDialog, setCompetitiveDialog] = useState(false);
+    const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+    const [competitiveSuggestion, setCompetitiveSuggestion] = useState<any | null>(null);
+    const [competitiveLoading, setCompetitiveLoading] = useState(false);
+    const [competitorPrices, setCompetitorPrices] = useState<any[]>([]);
+    const [newCompetitor, setNewCompetitor] = useState({ source: '', sourceLabel: '', prezzoRilevato: '', url: '' });
+    const [addingCompetitor, setAddingCompetitor] = useState(false);
+    const [marketStats, setMarketStats] = useState<any | null>(null);
+
+    // #15 — AI Review State
+    const [aiReviewLoading, setAiReviewLoading] = useState(false);
+    const [aiReviewStats, setAiReviewStats] = useState<{ pending: number; approved: number; flagged: number; total: number } | null>(null);
 
     useEffect(() => {
         fetchData();
@@ -515,6 +535,127 @@ export default function Pricing() {
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* #14 — Competitive Pricing */}
+            <Accordion variant="outlined" sx={{ mt: 3, borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <QueryStatsIcon color="primary" />
+                        <Typography fontWeight={700}>💰 Prezzo Competitivo Automatico</Typography>
+                        <Chip label="Feature #14" size="small" variant="outlined" color="primary" />
+                    </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Inserisci prezzi competitor manualmente per ogni prodotto. Il sistema suggerisce un prezzo competitivo
+                        basato sui competitor tracciati + statistiche di mercato interne.
+                    </Typography>
+
+                    <Grid container spacing={2}>
+                        <Grid item xs={12} md={4}>
+                            <Card variant="outlined">
+                                <CardContent>
+                                    <Typography variant="subtitle2" fontWeight={700} gutterBottom>📊 Come funziona</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        1. Vai nel <strong>Master File</strong> e apri un prodotto<br />
+                                        2. Usa il pulsante <strong>"Suggerisci Prezzo"</strong> per ottenere il prezzo competitivo<br />
+                                        3. Aggiungi prezzi competitor tramite la scheda prodotto<br />
+                                        4. Il sistema combina competitor reali + media markup catalogo
+                                    </Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                            <Card variant="outlined">
+                                <CardContent>
+                                    <Typography variant="subtitle2" fontWeight={700} gutterBottom>🎯 Fonti di dati supportate</Typography>
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                                        {['Amazon', 'MediaWorld', 'Euronics', 'Unieuro', 'eBay', 'Manuale'].map(s => (
+                                            <Chip key={s} label={s} size="small" variant="outlined" />
+                                        ))}
+                                    </Box>
+                                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                        Inserimento manuale. Integrazione API in sviluppo.
+                                    </Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                            <Card variant="outlined">
+                                <CardContent>
+                                    <Typography variant="subtitle2" fontWeight={700} gutterBottom>⚙️ Regola di Posizionamento</Typography>
+                                    <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+                                        <InputLabel>Strategia</InputLabel>
+                                        <Select label="Strategia" defaultValue="market_avg">
+                                            <MenuItem value="market_avg">In linea con media mercato</MenuItem>
+                                            <MenuItem value="below_cheapest">Sotto il più economico</MenuItem>
+                                            <MenuItem value="above_avg">Sopra la media</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        sx={{ mt: 1 }}
+                                        onClick={() => api.post('/pricing/positioning-rule', { mode: 'market_avg', delta: 0, minMarginPct: 15 }).then(() => toast.success('Regola salvata'))}
+                                    >
+                                        Salva Regola
+                                    </Button>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                    </Grid>
+                </AccordionDetails>
+            </Accordion>
+
+            {/* #15 — AI Metafield Review */}
+            <Accordion variant="outlined" sx={{ mt: 2, borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <AutoAwesomeIcon color="secondary" />
+                        <Typography fontWeight={700}>🤖 AI Review Metafields Generati</Typography>
+                        <Chip label="Feature #15" size="small" variant="outlined" color="secondary" />
+                    </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Fa passare ogni scheda prodotto arricchita da AI attraverso un secondo modello Gemini ("critic") che verifica
+                        coerenza, assenza di allucinazioni e qualità SEO. <strong>AI vs AI per maggiore affidabilità.</strong>
+                    </Typography>
+
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={12} md={8}>
+                            <Alert severity="info" icon={<AutoAwesomeIcon />}>
+                                <Typography variant="body2">
+                                    La review viene eseguita <strong>per singolo prodotto</strong> dalla colonna <strong>"Integrazioni Shopify"</strong>
+                                    usando il pulsante 🤖 nella preview table. Il batch qui esegue fino a 10 prodotti in parallelo.
+                                </Typography>
+                            </Alert>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                            <Button
+                                variant="contained"
+                                color="secondary"
+                                fullWidth
+                                startIcon={aiReviewLoading ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeIcon />}
+                                disabled={aiReviewLoading}
+                                onClick={async () => {
+                                    setAiReviewLoading(true);
+                                    try {
+                                        await api.post('/shopify/ai-review-batch', { batchSize: 10 });
+                                        toast.success('AI Review batch avviata! Controlla i risultati nella tab Integrazioni.');
+                                    } catch (e: any) {
+                                        toast.error(`Errore: ${e.response?.data?.error || e.message}`);
+                                    } finally {
+                                        setAiReviewLoading(false);
+                                    }
+                                }}
+                            >
+                                Avvia AI Review Batch (10 prodotti)
+                            </Button>
+                        </Grid>
+                    </Grid>
+                </AccordionDetails>
+            </Accordion>
 
         </Box >
     );

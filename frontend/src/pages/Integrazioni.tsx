@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
     Box,
     Typography,
@@ -27,7 +27,19 @@ import {
     TablePagination,
     IconButton,
     Tooltip,
-    LinearProgress
+    LinearProgress,
+    Select,
+    MenuItem,
+    InputAdornment,
+    ToggleButtonGroup,
+    ToggleButton,
+    Drawer,
+    Tabs,
+    Tab,
+    Accordion,
+    AccordionSummary,
+    AccordionDetails,
+    Badge
 } from '@mui/material';
 import {
     Storefront as ShopifyIcon,
@@ -38,7 +50,21 @@ import {
     CloudDownload as CloudDownloadIcon,
     Image as ImageIcon,
     Description as DescriptionIcon,
-    Memory as MemoryIcon
+    Memory as MemoryIcon,
+    Stop as StopIcon,
+    DeleteForever as DeleteForeverIcon,
+    Replay as ReplayIcon,
+    Search as SearchIcon,
+    ArrowUpward as ArrowUpwardIcon,
+    ArrowDownward as ArrowDownwardIcon,
+    Block as BlockIcon,
+    History as HistoryIcon,
+    ExpandMore as ExpandMoreIcon,
+    Close as CloseIcon,
+    OpenInNew as OpenInNewIcon,
+    Add as AddIcon,
+    Delete as DeleteIcon,
+    AutoAwesome as AutoAwesomeIcon
 } from '@mui/icons-material';
 
 import api from '../utils/api';
@@ -54,8 +80,45 @@ export default function Integrazioni() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [cancelling, setCancelling] = useState(false);
+    const [resetting, setResetting] = useState(false);
+    const [openResetConfirm, setOpenResetConfirm] = useState(false);
     const [savingPlaceholder, setSavingPlaceholder] = useState(false);
     const [generating, setGenerating] = useState(false);
+
+    // Live Log Sync State
+    const [syncLogs, setSyncLogs] = useState<{ ts: number; level: string; msg: string }[]>([]);
+    const syncLogsSince = useRef<number>(0);
+    const syncLogsInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+    const syncLogsEndRef = useRef<HTMLDivElement>(null);
+
+    // Stato UI Actions
+    const [retrying, setRetrying] = useState<Set<number>>(new Set());
+    // Blacklist State
+    const [blacklisting, setBlacklisting] = useState<Set<number>>(new Set());
+    const [aiReviewing, setAiReviewing] = useState<Set<number>>(new Set());
+    // Product Preview Modal (Feature #5)
+    const [previewProduct, setPreviewProduct] = useState<any>(null);
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewTab, setPreviewTab] = useState(0);
+    // Price History (Feature #7)
+    const [priceHistoryOpen, setPriceHistoryOpen] = useState(false);
+    const [priceHistory, setPriceHistory] = useState<any[]>([]);
+    const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+    const [priceHistoryProduct, setPriceHistoryProduct] = useState<string>('');
+    // Category Mapping (Feature #8)
+    const [categoryMapping, setCategoryMapping] = useState<Record<string, string>>({});
+    const [categoryMappingNewKey, setCategoryMappingNewKey] = useState('');
+    const [categoryMappingNewVal, setCategoryMappingNewVal] = useState('');
+    const [categoryMappingLoading, setCategoryMappingLoading] = useState(false);
+
+    // Filter/Search State per la tabella preview
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterStato, setFilterStato] = useState('all');
+    const [sortBy, setSortBy] = useState('createdAt');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Shopify Preview State
     const [previewData, setPreviewData] = useState<any[]>([]);
@@ -121,6 +184,7 @@ export default function Integrazioni() {
         fetchIcecatProgress(); // Load initial progress
         fetchShopifyProgress(); // Load initial Shopify progress
         fetchAIProgress(); // Load initial AI progress
+        fetchCategoryMapping(); // Load category mapping
     }, []);
 
     // Poll Icecat progress every 5 seconds if enrichment is running
@@ -204,7 +268,11 @@ export default function Integrazioni() {
             const response = await api.get('/shopify/preview', {
                 params: {
                     page: previewPage + 1,
-                    limit: previewRowsPerPage
+                    limit: previewRowsPerPage,
+                    search: searchQuery,
+                    stato: filterStato,
+                    sortBy,
+                    sortOrder
                 }
             });
             setPreviewData(response.data?.data?.products || []);
@@ -218,7 +286,17 @@ export default function Integrazioni() {
 
     useEffect(() => {
         fetchShopifyPreview();
-    }, [previewPage, previewRowsPerPage]);
+    }, [previewPage, previewRowsPerPage, filterStato, sortBy, sortOrder]);
+
+    // Debounce ricerca
+    useEffect(() => {
+        if (searchTimeout.current) clearTimeout(searchTimeout.current);
+        searchTimeout.current = setTimeout(() => {
+            setPreviewPage(0);
+            fetchShopifyPreview();
+        }, 500);
+        return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
+    }, [searchQuery]);
 
     const handleSave = async () => {
         setSaving(true);
@@ -273,8 +351,187 @@ export default function Integrazioni() {
         setOpenSyncConfirm(false);
     };
 
+    // --- CANCEL SYNC ---
+    const handleCancelSync = async () => {
+        setCancelling(true);
+        try {
+            await api.post('/shopify/cancel');
+            toast.warning('🛑 Segnale di stop inviato. La sync si fermerà al prossimo batch.');
+            setSyncing(false);
+        } catch (e: any) {
+            toast.error('Errore invio segnale di stop');
+        } finally {
+            setCancelling(false);
+        }
+    };
+
+    // --- RETRY SINGOLO PRODOTTO ---
+    const handleRetry = async (outputId: number) => {
+        setRetrying(prev => new Set(prev).add(outputId));
+        try {
+            await api.post(`/shopify/retry/${outputId}`);
+            toast.info('🔁 Retry avviato. Il prodotto sarà aggiornato a breve.');
+            // Aggiorna la tabella e le statistiche dopo qualche secondo
+            setTimeout(() => {
+                fetchShopifyPreview();
+                fetchShopifyProgress();
+            }, 3000);
+        } catch (e: any) {
+            toast.error(`Errore retry: ${e.response?.data?.error || e.message}`);
+        } finally {
+            setRetrying(prev => { const s = new Set(prev); s.delete(outputId); return s; });
+        }
+    };
+
+    // --- PRODUCT PREVIEW (#5) ---
+    const handlePreview = async (outputId: number) => {
+        setPreviewOpen(true);
+        setPreviewLoading(true);
+        setPreviewTab(0);
+        try {
+            const res = await api.get(`/shopify/preview/${outputId}`);
+            setPreviewProduct(res.data?.data || null);
+        } catch {
+            toast.error('Errore caricamento anteprima');
+            setPreviewOpen(false);
+        } finally {
+            setPreviewLoading(false);
+        }
+    };
+
+    // --- BLACKLIST (#6) ---
+    const handleBlacklist = async (outputId: number) => {
+        setBlacklisting(prev => new Set(prev).add(outputId));
+        try {
+            const res = await api.post(`/shopify/blacklist/${outputId}`);
+            const stato = res.data?.data?.statoCaricamento;
+            toast.info(stato === 'blacklisted' ? '🚫 Prodotto escluso dalla sync' : '✅ Prodotto riattivato');
+            setPreviewData(prev => prev.map(r => r.id === outputId ? { ...r, statoCaricamento: stato } : r));
+        } catch (e: any) {
+            toast.error(`Errore: ${e.response?.data?.error || e.message}`);
+        } finally {
+            setBlacklisting(prev => { const s = new Set(prev); s.delete(outputId); return s; });
+        }
+    };
+
+    // ─── #15 AI METAFIELD REVIEW (Single) ─────────────────────────
+    const handleAiReview = async (outputId: number) => {
+        setAiReviewing(prev => new Set(prev).add(outputId));
+        const toastId = toast.loading('Review AI in corso... attendere');
+        try {
+            const res = await api.post(`/shopify/ai-review/${outputId}`);
+            const data = res.data.data;
+            if (data.approved) {
+                toast.update(toastId, { render: `Score ${data.score}/10 — Approvato ✅`, type: 'success', isLoading: false, autoClose: 4000 });
+            } else {
+                toast.update(toastId, { render: `Score ${data.score}/10 — Criticità rilevate ⚠️`, type: 'warning', isLoading: false, autoClose: 5000 });
+            }
+            fetchShopifyPreview(); // ricarica riga
+        } catch (error: any) {
+            toast.update(toastId, {
+                render: error.response?.data?.error?.message || 'Errore AI Review',
+                type: 'error',
+                isLoading: false,
+                autoClose: 3000
+            });
+        } finally {
+            setAiReviewing(prev => { const s = new Set(prev); s.delete(outputId); return s; });
+        }
+    };
+
+    // --- PRICE HISTORY (#7) ---
+    const handlePriceHistory = async (masterFileId: number, productTitle: string) => {
+        setPriceHistoryProduct(productTitle);
+        setPriceHistoryOpen(true);
+        setPriceHistoryLoading(true);
+        try {
+            const res = await api.get(`/shopify/price-history/${masterFileId}`);
+            setPriceHistory(res.data?.data || []);
+        } catch {
+            toast.error('Errore caricamento storico prezzi');
+        } finally {
+            setPriceHistoryLoading(false);
+        }
+    };
+
+    // --- CATEGORY MAPPING (#8) ---
+    const fetchCategoryMapping = async () => {
+        try {
+            const res = await api.get('/shopify/category-mapping');
+            setCategoryMapping(res.data?.data || {});
+        } catch { /* ignore */ }
+    };
+    const handleSaveCategoryMapping = async (newMap: Record<string, string>) => {
+        setCategoryMappingLoading(true);
+        try {
+            await api.post('/shopify/category-mapping', { mapping: newMap });
+            setCategoryMapping(newMap);
+            toast.success('Mappatura categorie salvata');
+        } catch {
+            toast.error('Errore salvataggio mappatura');
+        } finally {
+            setCategoryMappingLoading(false);
+        }
+    };
+    const addCategoryMappingRow = () => {
+        if (!categoryMappingNewKey.trim() || !categoryMappingNewVal.trim()) return;
+        const updated = { ...categoryMapping, [categoryMappingNewKey.trim()]: categoryMappingNewVal.trim() };
+        handleSaveCategoryMapping(updated);
+        setCategoryMappingNewKey('');
+        setCategoryMappingNewVal('');
+    };
+    const removeCategoryMappingRow = (key: string) => {
+        const updated = { ...categoryMapping };
+        delete updated[key];
+        handleSaveCategoryMapping(updated);
+    };
+
+    // --- RESET DB ---
+    const handleConfirmReset = async () => {
+        setOpenResetConfirm(false);
+        setResetting(true);
+        const toastId = toast.loading('Reset in corso...');
+        try {
+            const response = await api.post('/shopify/reset');
+            toast.update(toastId, {
+                render: response.data.message || 'Reset completato!',
+                type: 'success',
+                isLoading: false,
+                autoClose: 6000
+            });
+            fetchShopifyPreview();
+            fetchShopifyProgress();
+        } catch (e: any) {
+            toast.update(toastId, {
+                render: 'Errore durante il reset',
+                type: 'error',
+                isLoading: false,
+                autoClose: 5000
+            });
+        } finally {
+            setResetting(false);
+        }
+    };
+
     const executeSync = async () => {
         setSyncing(true);
+        // Reset e avvio polling log
+        setSyncLogs([]);
+        syncLogsSince.current = 0;
+        if (syncLogsInterval.current) clearInterval(syncLogsInterval.current);
+        syncLogsInterval.current = setInterval(async () => {
+            try {
+                const res = await api.get(`/shopify/logs?since=${syncLogsSince.current}`);
+                const entries: { ts: number; level: string; msg: string }[] = res.data.data || [];
+                if (entries.length > 0) {
+                    syncLogsSince.current = entries[entries.length - 1].ts;
+                    setSyncLogs(prev => [...prev, ...entries].slice(-200));
+                    // Auto-scroll al fondo
+                    setTimeout(() => syncLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+                }
+            } catch (_) { /* ignora errori di polling */ }
+        }, 2000);
+
         const toastId = toast.loading('Avvio sincronizzazione...');
         handleCloseSyncConfirm();
 
@@ -341,6 +598,13 @@ export default function Integrazioni() {
             });
         } finally {
             setSyncing(false);
+            // Stop polling log dopo 5s (per catturare il messaggio finale)
+            setTimeout(() => {
+                if (syncLogsInterval.current) {
+                    clearInterval(syncLogsInterval.current);
+                    syncLogsInterval.current = null;
+                }
+            }, 5000);
         }
     };
 
@@ -883,11 +1147,155 @@ export default function Integrazioni() {
                                     </Grid>
                                 </Grid>
 
+                                {/* 🗂️ FEATURE #8: CATEGORY MAPPING */}
+                                <Grid item xs={12}>
+                                    <Accordion variant="outlined" sx={{ borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+                                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <Typography fontWeight={600}>🗂️ Mappatura Categorie → Shopify product_type</Typography>
+                                                {Object.keys(categoryMapping).length > 0 && (
+                                                    <Chip label={`${Object.keys(categoryMapping).length} regole`} size="small" color="primary" />
+                                                )}
+                                            </Box>
+                                        </AccordionSummary>
+                                        <AccordionDetails>
+                                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                                Mappa i nomi categoria interni al <code>product_type</code> inviato a Shopify.
+                                                Lascia vuoto per usare il nome categoria com'è.
+                                            </Typography>
+                                            {/* Existing mappings */}
+                                            {Object.keys(categoryMapping).length > 0 && (
+                                                <Table size="small" sx={{ mb: 2 }}>
+                                                    <TableHead>
+                                                        <TableRow>
+                                                            <TableCell sx={{ fontWeight: 700 }}>Categoria interna</TableCell>
+                                                            <TableCell sx={{ fontWeight: 700 }}>product_type Shopify</TableCell>
+                                                            <TableCell />
+                                                        </TableRow>
+                                                    </TableHead>
+                                                    <TableBody>
+                                                        {Object.entries(categoryMapping).map(([k, v]) => (
+                                                            <TableRow key={k}>
+                                                                <TableCell sx={{ fontFamily: 'monospace' }}>{k}</TableCell>
+                                                                <TableCell>{v}</TableCell>
+                                                                <TableCell>
+                                                                    <IconButton size="small" color="error" onClick={() => removeCategoryMappingRow(k)}>
+                                                                        <DeleteIcon fontSize="small" />
+                                                                    </IconButton>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            )}
+                                            {/* Add new mapping */}
+                                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <TextField
+                                                    size="small"
+                                                    placeholder="Categoria interna (es. Notebook)"
+                                                    value={categoryMappingNewKey}
+                                                    onChange={e => setCategoryMappingNewKey(e.target.value)}
+                                                    sx={{ minWidth: 200 }}
+                                                />
+                                                <Typography>→</Typography>
+                                                <TextField
+                                                    size="small"
+                                                    placeholder="product_type Shopify (es. Laptop & Computer)"
+                                                    value={categoryMappingNewVal}
+                                                    onChange={e => setCategoryMappingNewVal(e.target.value)}
+                                                    sx={{ minWidth: 260 }}
+                                                />
+                                                <Button
+                                                    variant="contained"
+                                                    size="small"
+                                                    startIcon={categoryMappingLoading ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+                                                    onClick={addCategoryMappingRow}
+                                                    disabled={!categoryMappingNewKey.trim() || !categoryMappingNewVal.trim() || categoryMappingLoading}
+                                                >
+                                                    Aggiungi
+                                                </Button>
+                                            </Box>
+                                        </AccordionDetails>
+                                    </Accordion>
+                                </Grid>
+
                                 {/* Output Preview Section */}
                                 <Grid item xs={12}>
-                                    <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
-                                        Anteprima Output Generato
-                                    </Typography>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                                        <Typography variant="subtitle1" fontWeight={600}>
+                                            Anteprima Output Generato
+                                            {previewTotal > 0 && (
+                                                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                                    ({previewTotal.toLocaleString()} prodotti)
+                                                </Typography>
+                                            )}
+                                        </Typography>
+                                    </Box>
+
+                                    {/* 🔍 Filtri e Ricerca */}
+                                    <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {/* Search */}
+                                        <TextField
+                                            size="small"
+                                            placeholder="Cerca titolo, handle, SKU..."
+                                            value={searchQuery}
+                                            onChange={e => { setSearchQuery(e.target.value); setPreviewPage(0); }}
+                                            InputProps={{
+                                                startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+                                                endAdornment: searchQuery ? (
+                                                    <InputAdornment position="end">
+                                                        <IconButton size="small" onClick={() => { setSearchQuery(''); setPreviewPage(0); }}>
+                                                            ✕
+                                                        </IconButton>
+                                                    </InputAdornment>
+                                                ) : null
+                                            }}
+                                            sx={{ minWidth: 240 }}
+                                        />
+
+                                        {/* Stato chips */}
+                                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                                            {[
+                                                { key: 'all', label: 'Tutti', color: 'default' },
+                                                { key: 'pending', label: 'Pending', color: 'warning' },
+                                                { key: 'uploaded', label: 'Caricati', color: 'success' },
+                                                { key: 'error', label: 'Errori', color: 'error' },
+                                                { key: 'price_update', label: '€ Update', color: 'info' },
+                                            ].map(({ key, label, color }) => (
+                                                <Chip
+                                                    key={key}
+                                                    label={label}
+                                                    size="small"
+                                                    onClick={() => { setFilterStato(key); setPreviewPage(0); }}
+                                                    color={filterStato === key ? (color as any) : 'default'}
+                                                    variant={filterStato === key ? 'filled' : 'outlined'}
+                                                    sx={{ cursor: 'pointer' }}
+                                                />
+                                            ))}
+                                        </Box>
+
+                                        {/* Sort */}
+                                        <Box sx={{ display: 'flex', gap: 0.5, ml: 'auto' }}>
+                                            <Select
+                                                size="small"
+                                                value={sortBy}
+                                                onChange={e => { setSortBy(e.target.value); setPreviewPage(0); }}
+                                                sx={{ minWidth: 130, fontSize: '0.8rem' }}
+                                            >
+                                                <MenuItem value="createdAt">Data creazione</MenuItem>
+                                                <MenuItem value="variantPrice">Prezzo</MenuItem>
+                                                <MenuItem value="variantInventoryQty">Quantità</MenuItem>
+                                                <MenuItem value="title">Titolo</MenuItem>
+                                                <MenuItem value="statoCaricamento">Stato</MenuItem>
+                                            </Select>
+                                            <Tooltip title={sortOrder === 'desc' ? 'Ordine decrescente' : 'Ordine crescente'}>
+                                                <IconButton size="small" onClick={() => { setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setPreviewPage(0); }}>
+                                                    {sortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <ArrowUpwardIcon fontSize="small" />}
+                                                </IconButton>
+                                            </Tooltip>
+                                        </Box>
+                                    </Box>
+
                                     <Paper variant="outlined">
                                         <TableContainer sx={{ maxHeight: 400 }}>
                                             <Table stickyHeader size="small">
@@ -900,6 +1308,7 @@ export default function Integrazioni() {
                                                         <TableCell>Qta</TableCell>
                                                         <TableCell>Stato</TableCell>
                                                         <TableCell>Info</TableCell>
+                                                        <TableCell>Azioni</TableCell>
                                                     </TableRow>
                                                 </TableHead>
                                                 <TableBody>
@@ -913,33 +1322,111 @@ export default function Integrazioni() {
                                                         </TableRow>
                                                     ) : (
                                                         previewData.filter(r => r && r.id).map((row) => (
-                                                            <TableRow key={row.id}>
-                                                                <TableCell>{row.handle || 'N/D'}</TableCell>
-                                                                <TableCell>{row.title || 'Senza titolo'}</TableCell>
+                                                            <TableRow key={row.id} sx={
+                                                                row.statoCaricamento === 'error' ? { backgroundColor: 'rgba(244,67,54,0.04)' } :
+                                                                    row.statoCaricamento === 'blacklisted' ? { backgroundColor: 'rgba(0,0,0,0.04)', opacity: 0.65 } :
+                                                                        {}
+                                                            }>
+                                                                <TableCell><Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{row.handle || 'N/D'}</Typography></TableCell>
                                                                 <TableCell>
-                                                                    {row.tags && typeof row.tags === 'string' ? row.tags.split(',').map((tag: string, index: number) => (
+                                                                    <Tooltip title={row.title}>
+                                                                        <Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>{row.title || 'Senza titolo'}</Typography>
+                                                                    </Tooltip>
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    {row.tags && typeof row.tags === 'string' ? row.tags.split(',').slice(0, 3).map((tag: string, index: number) => (
                                                                         <Chip key={index} label={tag.trim()} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
                                                                     )) : '-'}
                                                                 </TableCell>
-                                                                <TableCell>€ {row.variantPrice || '0.00'}</TableCell>
+                                                                <TableCell>€ {typeof row.variantPrice === 'number' ? row.variantPrice.toFixed(2) : row.variantPrice || '0.00'}</TableCell>
                                                                 <TableCell>{row.variantInventoryQty || 0}</TableCell>
                                                                 <TableCell>
-                                                                    <Chip
-                                                                        label={row.statoCaricamento || 'pending'}
-                                                                        size="small"
-                                                                        sx={{
-                                                                            ...(row.statoCaricamento === 'uploaded' && {
-                                                                                backgroundColor: '#000000',
-                                                                                color: '#ffffff',
-                                                                            })
-                                                                        }}
-                                                                        color={row.statoCaricamento === 'uploaded' ? 'default' : row.statoCaricamento === 'error' ? 'error' : 'default'}
-                                                                    />
+                                                                    <Tooltip
+                                                                        title={row.statoCaricamento === 'error' && row.errorMessage ? (
+                                                                            <Box sx={{ fontSize: 11, maxWidth: 320, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                                                                {row.errorMessage.substring(0, 400)}
+                                                                            </Box>
+                                                                        ) : ''}
+                                                                        placement="top"
+                                                                        arrow
+                                                                    >
+                                                                        <Chip
+                                                                            label={row.statoCaricamento || 'pending'}
+                                                                            size="small"
+                                                                            sx={{
+                                                                                cursor: row.statoCaricamento === 'error' ? 'help' : 'default',
+                                                                                ...(row.statoCaricamento === 'uploaded' && { backgroundColor: '#000000', color: '#ffffff' }),
+                                                                                ...(row.statoCaricamento === 'blacklisted' && { backgroundColor: '#616161', color: '#fff' }),
+                                                                            }}
+                                                                            color={
+                                                                                row.statoCaricamento === 'uploaded' ? 'default' :
+                                                                                    row.statoCaricamento === 'error' ? 'error' :
+                                                                                        row.statoCaricamento === 'price_update' ? 'info' :
+                                                                                            'default'
+                                                                            }
+                                                                        />
+                                                                    </Tooltip>
                                                                 </TableCell>
                                                                 <TableCell>
                                                                     {row.bodyHtml && <Tooltip title="Descrizione presente"><DescriptionIcon fontSize="small" color="action" /></Tooltip>}
                                                                     {row.immaginiUrls && <Tooltip title="Immagini presenti"><ImageIcon fontSize="small" color="action" sx={{ ml: 1 }} /></Tooltip>}
                                                                     {row.specificheJson && <Tooltip title="Specifiche tecniche estratte"><MemoryIcon fontSize="small" color="action" sx={{ ml: 1 }} /></Tooltip>}
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                                        {/* 👁 Preview */}
+                                                                        <Tooltip title="Anteprima prodotto">
+                                                                            <IconButton size="small" onClick={() => handlePreview(row.id)}>
+                                                                                <VisibilityIcon fontSize="small" />
+                                                                            </IconButton>
+                                                                        </Tooltip>
+                                                                        {/* 📈 Storico prezzi */}
+                                                                        {row.masterFileId && (
+                                                                            <Tooltip title="Storico prezzi">
+                                                                                <IconButton size="small" onClick={() => handlePriceHistory(row.masterFileId, row.title)}>
+                                                                                    <HistoryIcon fontSize="small" />
+                                                                                </IconButton>
+                                                                            </Tooltip>
+                                                                        )}
+                                                                        {/* 🚫 Blacklist */}
+                                                                        <Tooltip title={row.statoCaricamento === 'blacklisted' ? 'Riattiva prodotto' : 'Escludi dalla sync'}>
+                                                                            <IconButton
+                                                                                size="small"
+                                                                                color={row.statoCaricamento === 'blacklisted' ? 'primary' : 'default'}
+                                                                                disabled={blacklisting.has(row.id)}
+                                                                                onClick={() => handleBlacklist(row.id)}
+                                                                            >
+                                                                                {blacklisting.has(row.id) ? <CircularProgress size={14} /> : <BlockIcon fontSize="small" />}
+                                                                            </IconButton>
+                                                                        </Tooltip>
+                                                                        {/* 🤖 AI Review (#15) */}
+                                                                        {row.isAiEnriched && (
+                                                                            <Tooltip title={row.aiReviewStatus === 'approved' ? 'AI Review passata' : row.aiReviewStatus === 'flagged' ? 'Problemi trovati in AI Review' : 'Avvia AI Review (Critic)'}>
+                                                                                <IconButton
+                                                                                    size="small"
+                                                                                    color={row.aiReviewStatus === 'approved' ? 'success' : row.aiReviewStatus === 'flagged' ? 'warning' : 'secondary'}
+                                                                                    disabled={aiReviewing.has(row.id)}
+                                                                                    onClick={() => handleAiReview(row.id)}
+                                                                                >
+                                                                                    {aiReviewing.has(row.id) ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeIcon fontSize="small" />}
+                                                                                </IconButton>
+                                                                            </Tooltip>
+                                                                        )}
+                                                                        {/* 🔁 Retry (solo per errori) */}
+                                                                        {row.statoCaricamento === 'error' && (
+                                                                            <Tooltip title={retrying.has(row.id) ? 'Retry in corso...' : 'Riprova sincronizzazione'}>
+                                                                                <Chip
+                                                                                    label={retrying.has(row.id) ? '...' : 'Riprova'}
+                                                                                    size="small"
+                                                                                    color="error"
+                                                                                    variant="outlined"
+                                                                                    onClick={() => !retrying.has(row.id) && handleRetry(row.id)}
+                                                                                    icon={retrying.has(row.id) ? <CircularProgress size={10} color="inherit" /> : <ReplayIcon fontSize="inherit" />}
+                                                                                    sx={{ cursor: retrying.has(row.id) ? 'wait' : 'pointer', fontWeight: 600 }}
+                                                                                />
+                                                                            </Tooltip>
+                                                                        )}
+                                                                    </Box>
                                                                 </TableCell>
                                                             </TableRow>
                                                         ))
@@ -957,7 +1444,7 @@ export default function Integrazioni() {
                                         />
                                     </Paper>
 
-                                    <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+                                    <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 2, flexWrap: 'wrap' }}>
                                         <Button
                                             variant="outlined"
                                             startIcon={<CloudDownloadIcon />}
@@ -974,20 +1461,45 @@ export default function Integrazioni() {
                                         >
                                             Genera Export Shopify
                                         </Button>
+
+                                        {/* 🛑 STOP SYNC — visibile solo quando la sync è in corso */}
+                                        {syncing && (
+                                            <Button
+                                                variant="contained"
+                                                color="error"
+                                                startIcon={cancelling ? <CircularProgress size={20} color="inherit" /> : <StopIcon />}
+                                                onClick={handleCancelSync}
+                                                disabled={cancelling}
+                                                sx={{ px: 3, fontWeight: 700 }}
+                                            >
+                                                {cancelling ? 'Arresto...' : 'Stop Sync'}
+                                            </Button>
+                                        )}
+
+                                        {/* 🔄 RESET DB — sempre visibile */}
+                                        <Button
+                                            variant="outlined"
+                                            color="warning"
+                                            startIcon={resetting ? <CircularProgress size={20} color="inherit" /> : <DeleteForeverIcon />}
+                                            onClick={() => setOpenResetConfirm(true)}
+                                            disabled={resetting || syncing}
+                                            sx={{ px: 3, borderColor: '#ff9800', color: '#ff9800', '&:hover': { borderColor: '#e65100', color: '#e65100', backgroundColor: 'rgba(255,152,0,0.05)' } }}
+                                        >
+                                            Reset DB Shopify
+                                        </Button>
+
                                         <Button
                                             variant="contained"
                                             startIcon={syncing ? <CircularProgress size={20} color="inherit" /> : <SyncIcon sx={{ color: '#FFD700' }} />}
                                             onClick={handleOpenSyncConfirm}
                                             disabled={syncing}
-                                            sx={{
-                                                px: 4
-                                            }}
+                                            sx={{ px: 4 }}
                                         >
                                             Sincronizza con Shopify
                                         </Button>
                                     </Box>
 
-                                    {/* Sync Confirmation Dialog */}
+                                    {/* ✅ Sync Confirmation Dialog */}
                                     <Dialog
                                         open={openSyncConfirm}
                                         onClose={handleCloseSyncConfirm}
@@ -1008,6 +1520,39 @@ export default function Integrazioni() {
                                             </Button>
                                             <Button onClick={executeSync} variant="contained" autoFocus>
                                                 Conferma e Sincronizza
+                                            </Button>
+                                        </DialogActions>
+                                    </Dialog>
+
+                                    {/* 🔴 Reset Confirmation Dialog */}
+                                    <Dialog
+                                        open={openResetConfirm}
+                                        onClose={() => setOpenResetConfirm(false)}
+                                        aria-labelledby="reset-dialog-title"
+                                    >
+                                        <DialogTitle id="reset-dialog-title" sx={{ color: 'error.main', fontWeight: 700 }}>
+                                            ⚠️ Reset Database Shopify
+                                        </DialogTitle>
+                                        <DialogContent>
+                                            <DialogContentText sx={{ mb: 2 }}>
+                                                <strong>Questa operazione azzera tutti i record di output Shopify:</strong>
+                                            </DialogContentText>
+                                            <Alert severity="warning" sx={{ mb: 2 }}>
+                                                • Tutti i prodotti torneranno a stato <strong>"pending"</strong><br />
+                                                • Gli <strong>ID Shopify salvati</strong> verranno cancellati<br />
+                                                • La prossima sync <strong>CREERÀ nuovi prodotti</strong> su Shopify<br />
+                                                • Usare SOLO dopo aver <strong>eliminato manualmente tutti i prodotti</strong> dal pannello Shopify
+                                            </Alert>
+                                            <DialogContentText>
+                                                Hai già eliminato tutti i prodotti dal tuo negozio Shopify?
+                                            </DialogContentText>
+                                        </DialogContent>
+                                        <DialogActions>
+                                            <Button onClick={() => setOpenResetConfirm(false)} color="inherit">
+                                                Annulla
+                                            </Button>
+                                            <Button onClick={handleConfirmReset} variant="contained" color="error" startIcon={<DeleteForeverIcon />}>
+                                                Sì, Reset Completo
                                             </Button>
                                         </DialogActions>
                                     </Dialog>
@@ -1055,6 +1600,63 @@ export default function Integrazioni() {
                                                         ⏱️ Tempo stimato: ~{shopifyProgress.estimatedMinutesRemaining} min
                                                     </Typography>
                                                 )}
+                                            </Box>
+                                        </Box>
+                                    )}
+
+                                    {/* 📡 Live Log Panel */}
+                                    {syncLogs.length > 0 && (
+                                        <Box sx={{ mt: 2, width: '100%' }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                                                <Typography variant="caption" fontWeight={700} sx={{ color: 'text.secondary', letterSpacing: 1, textTransform: 'uppercase' }}>
+                                                    📡 Live Sync Log
+                                                </Typography>
+                                                <Typography
+                                                    variant="caption"
+                                                    sx={{ cursor: 'pointer', color: 'text.disabled', '&:hover': { color: 'text.secondary' } }}
+                                                    onClick={() => setSyncLogs([])}
+                                                >
+                                                    ✕ chiudi
+                                                </Typography>
+                                            </Box>
+                                            <Box
+                                                sx={{
+                                                    background: '#0d1117',
+                                                    border: '1px solid rgba(255,255,255,0.08)',
+                                                    borderRadius: 2,
+                                                    p: 1.5,
+                                                    maxHeight: 280,
+                                                    overflowY: 'auto',
+                                                    fontFamily: '"JetBrains Mono", "Fira Code", "Courier New", monospace',
+                                                    fontSize: '11.5px',
+                                                    lineHeight: 1.7,
+                                                    '&::-webkit-scrollbar': { width: '4px' },
+                                                    '&::-webkit-scrollbar-track': { background: 'transparent' },
+                                                    '&::-webkit-scrollbar-thumb': { background: 'rgba(255,255,255,0.15)', borderRadius: '2px' },
+                                                }}
+                                            >
+                                                {syncLogs.map((entry, i) => {
+                                                    const colorMap: Record<string, string> = {
+                                                        success: '#4caf50',
+                                                        error: '#f44336',
+                                                        warning: '#ff9800',
+                                                        batch: '#64b5f6',
+                                                        info: '#b0bec5',
+                                                    };
+                                                    const color = colorMap[entry.level] || '#b0bec5';
+                                                    const time = new Date(entry.ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                                    return (
+                                                        <Box key={i} sx={{ display: 'flex', gap: 1, mb: 0.25 }}>
+                                                            <Box component="span" sx={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0, userSelect: 'none' }}>
+                                                                {time}
+                                                            </Box>
+                                                            <Box component="span" sx={{ color }}>
+                                                                {entry.msg}
+                                                            </Box>
+                                                        </Box>
+                                                    );
+                                                })}
+                                                <div ref={syncLogsEndRef} />
                                             </Box>
                                         </Box>
                                     )}
@@ -1147,6 +1749,184 @@ export default function Integrazioni() {
                     <Button onClick={() => setOpenEnrichedDialog(false)}>Chiudi</Button>
                 </DialogActions>
             </Dialog>
-        </Box >
+
+            {/* ─────────────────────────────────────────────────────────── */}
+            {/* 👁️ FEATURE #5: PRODUCT PREVIEW DRAWER                       */}
+            {/* ─────────────────────────────────────────────────────────── */}
+            <Drawer
+                anchor="right"
+                open={previewOpen}
+                onClose={() => setPreviewOpen(false)}
+                PaperProps={{ sx: { width: { xs: '100vw', md: 600 }, p: 0 } }}
+            >
+                {previewLoading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                        <CircularProgress />
+                    </Box>
+                ) : previewProduct ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        {/* Header */}
+                        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <Box>
+                                <Typography variant="h6" fontWeight={700} sx={{ maxWidth: 480 }}>{previewProduct.title}</Typography>
+                                <Box sx={{ display: 'flex', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                                    <Chip label={previewProduct.vendor || 'N/D'} size="small" variant="outlined" />
+                                    <Chip label={previewProduct.productType || 'N/D'} size="small" color="primary" variant="outlined" />
+                                    <Chip label={`€ ${typeof previewProduct.variantPrice === 'number' ? previewProduct.variantPrice.toFixed(2) : previewProduct.variantPrice}`} size="small" color="success" />
+                                    <Chip label={`${previewProduct.variantInventoryQty || 0} pz`} size="small" />
+                                    {previewProduct.shopifyProductId && (
+                                        <Chip
+                                            label="Apri su Shopify"
+                                            size="small"
+                                            color="default"
+                                            icon={<OpenInNewIcon fontSize="small" />}
+                                            onClick={() => window.open(`https://${previewProduct.masterFile?.fornitoreSelezionato?.nomeFornitore || ''}/products/${previewProduct.handle}`, '_blank')}
+                                            sx={{ cursor: 'pointer' }}
+                                        />
+                                    )}
+                                </Box>
+                            </Box>
+                            <IconButton onClick={() => setPreviewOpen(false)}><CloseIcon /></IconButton>
+                        </Box>
+
+                        {/* Tabs */}
+                        <Tabs value={previewTab} onChange={(_, v) => setPreviewTab(v)} sx={{ borderBottom: '1px solid', borderColor: 'divider', px: 2 }}>
+                            <Tab label="Descrizione" />
+                            <Tab label="Immagini" />
+                            <Tab label="Metafields" />
+                        </Tabs>
+
+                        {/* Tab content */}
+                        <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+                            {previewTab === 0 && (
+                                <Box>
+                                    {previewProduct.bodyHtml ? (
+                                        <Box
+                                            sx={{ fontSize: 14, lineHeight: 1.7, '& table': { width: '100%', borderCollapse: 'collapse' }, '& td': { border: '1px solid #ddd', p: '6px' }, '& img': { maxWidth: '100%' } }}
+                                            dangerouslySetInnerHTML={{ __html: previewProduct.bodyHtml }}
+                                        />
+                                    ) : (
+                                        <Typography color="text.secondary">Nessuna descrizione disponibile.</Typography>
+                                    )}
+                                </Box>
+                            )}
+                            {previewTab === 1 && (
+                                <Box>
+                                    {previewProduct.immaginiUrls ? (() => {
+                                        try {
+                                            const urls: string[] = JSON.parse(previewProduct.immaginiUrls);
+                                            return (
+                                                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 1 }}>
+                                                    {urls.map((url, i) => (
+                                                        <Box key={i} component="a" href={url} target="_blank" sx={{ display: 'block', border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+                                                            <Box component="img" src={url} alt={`img-${i}`} sx={{ width: '100%', height: 140, objectFit: 'contain', display: 'block' }} />
+                                                        </Box>
+                                                    ))}
+                                                </Box>
+                                            );
+                                        } catch { return <Typography color="text.secondary">Errore parsing immagini.</Typography>; }
+                                    })() : <Typography color="text.secondary">Nessuna immagine disponibile.</Typography>}
+                                </Box>
+                            )}
+                            {previewTab === 2 && (
+                                <Box>
+                                    {previewProduct.metafieldsJson ? (() => {
+                                        try {
+                                            const meta = JSON.parse(previewProduct.metafieldsJson);
+                                            return (
+                                                <Table size="small">
+                                                    <TableHead>
+                                                        <TableRow>
+                                                            <TableCell sx={{ fontWeight: 700 }}>Chiave</TableCell>
+                                                            <TableCell sx={{ fontWeight: 700 }}>Valore</TableCell>
+                                                        </TableRow>
+                                                    </TableHead>
+                                                    <TableBody>
+                                                        {Object.entries(meta).map(([k, v]) => (
+                                                            <TableRow key={k}>
+                                                                <TableCell sx={{ fontFamily: 'monospace', fontSize: 11, color: 'primary.main' }}>{k}</TableCell>
+                                                                <TableCell>
+                                                                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxWidth: 300, display: 'block' }}>
+                                                                        {String(v).substring(0, 200)}{String(v).length > 200 ? '...' : ''}
+                                                                    </Typography>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            );
+                                        } catch { return <Typography color="text.secondary">Errore parsing metafields.</Typography>; }
+                                    })() : <Typography color="text.secondary">Nessun metafield disponibile.</Typography>}
+                                </Box>
+                            )}
+                        </Box>
+                    </Box>
+                ) : (
+                    <Box sx={{ p: 4, textAlign: 'center' }}>
+                        <Typography color="text.secondary">Nessun prodotto selezionato</Typography>
+                    </Box>
+                )}
+            </Drawer>
+
+            {/* ─────────────────────────────────────────────────────────── */}
+            {/* 📈 FEATURE #7: PRICE HISTORY DIALOG                         */}
+            {/* ─────────────────────────────────────────────────────────── */}
+            <Dialog open={priceHistoryOpen} onClose={() => setPriceHistoryOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box>
+                            <Typography variant="h6" fontWeight={700}>📈 Storico Prezzi</Typography>
+                            <Typography variant="caption" color="text.secondary" noWrap>{priceHistoryProduct}</Typography>
+                        </Box>
+                        <IconButton onClick={() => setPriceHistoryOpen(false)}><CloseIcon /></IconButton>
+                    </Box>
+                </DialogTitle>
+                <DialogContent dividers>
+                    {priceHistoryLoading ? (
+                        <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>
+                    ) : priceHistory.length === 0 ? (
+                        <Alert severity="info">Nessuna variazione di prezzo registrata. Le variazioni vengono registrate automaticamente a ogni ricalcolo.</Alert>
+                    ) : (
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>Data</TableCell>
+                                    <TableCell>Prezzo Acquisto</TableCell>
+                                    <TableCell>Vecchio</TableCell>
+                                    <TableCell>Nuovo</TableCell>
+                                    <TableCell>Δ</TableCell>
+                                    <TableCell>Markup</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {priceHistory.map(h => {
+                                    const delta = h.prezzoNuovo - h.prezzoVecchio;
+                                    const deltaColor = delta > 0 ? '#4caf50' : delta < 0 ? '#f44336' : 'text.secondary';
+                                    return (
+                                        <TableRow key={h.id}>
+                                            <TableCell sx={{ fontSize: 11 }}>{new Date(h.createdAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</TableCell>
+                                            <TableCell>€ {h.prezzoAcquisto?.toFixed(2)}</TableCell>
+                                            <TableCell>€ {h.prezzoVecchio?.toFixed(2)}</TableCell>
+                                            <TableCell sx={{ fontWeight: 700 }}>€ {h.prezzoNuovo?.toFixed(2)}</TableCell>
+                                            <TableCell sx={{ color: deltaColor, fontWeight: 600 }}>
+                                                {delta > 0 ? '+' : ''}{delta.toFixed(2)}
+                                            </TableCell>
+                                            <TableCell sx={{ fontSize: 11 }}>{h.markupPercentuale != null ? `${h.markupPercentuale}%` : '-'}</TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setPriceHistoryOpen(false)}>Chiudi</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ─────────────────────────────────────────────────────────── */}
+            {/* 🗂️ FEATURE #8: CATEGORY MAPPING DIALOG                      */}
+            {/* ─────────────────────────────────────────────────────────── */}
+        </Box>
     );
 }

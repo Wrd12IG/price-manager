@@ -27,6 +27,7 @@ import categorieRoutes from './routes/categorie.routes';
 import settingsRoutes from './routes/settings.routes';
 import aiRoutes from './routes/ai.routes';
 import normalizationRoutes from './routes/normalization.routes';
+import advancedRoutes from './routes/advanced.routes';
 
 // Load environment variables
 dotenv.config();
@@ -178,6 +179,11 @@ app.use('/api/categorie', categorieRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/normalization', normalizationRoutes);
+
+// ─── #13 #14 #15 Advanced Features ───
+app.use('/api/master-file', advancedRoutes);  // Duplicate detection
+app.use('/api/pricing', advancedRoutes);      // Competitive pricing
+app.use('/api/shopify', advancedRoutes);      // AI review (after shopifyRoutes to complement)
 
 // Static files (Se presenti)
 const publicPath = path.join(__dirname, '../public');

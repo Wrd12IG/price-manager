@@ -16,6 +16,51 @@ export class ImportService {
         return (cleaned.length > 0 && cleaned.length <= 14 && /^\d+$/.test(cleaned)) ? cleaned : null;
     }
 
+    /**
+     * Interpreta correttamente i prezzi italiani (punto per migliaia, virgola per decimali)
+     * e gestisce anche i casi limite o US format passati dai fornitori.
+     */
+    public static parseItalianPrice(priceStr: string | number | undefined | null): number {
+        if (priceStr === null || priceStr === undefined || priceStr === '') return 0;
+        let s = priceStr.toString().trim();
+
+        // Se la stringa contiene sia punto che virgola (es. 1.234,56 oppure 1,234.56)
+        if (s.includes('.') && s.includes(',')) {
+            if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+                // Formato EU/IT: 1.234,56 -> 1234.56
+                s = s.replace(/\./g, '').replace(',', '.');
+            } else {
+                // Formato US: 1,234.56 -> 1234.56
+                s = s.replace(/,/g, '');
+            }
+        }
+        // Se ha solo la virgola (es. 1200,50)
+        else if (s.includes(',')) {
+            s = s.replace(',', '.'); // IT: virgola decimale -> punto Javascript
+        }
+        // Se ha solo il punto (es. 1.234, 1200.50, 1.234.567)
+        else if (s.includes('.')) {
+            const parts = s.split('.');
+            if (parts.length > 2) {
+                // Formato "1.234.567" -> multipli punti di migliaia
+                s = s.replace(/\./g, '');
+            } else {
+                // "1.234" oppure "1200.50"
+                const afterDot = parts[parts.length - 1];
+                // In Italia se ci sono ESATTAMENTE 3 cifre dopo l'unico punto,
+                // significa che sono migliaia (es: 1.200 -> 1200). Se fossero decimali,
+                // un fornitore manderebbe "1200.50" (2 cifre).
+                if (afterDot.length === 3) {
+                    s = s.replace(/\./g, '');
+                }
+                // altrimenti lo lasciamo invariato ed il parser javascript lo prenderà come decimale (es. 1200.50)
+            }
+        }
+
+        const parsed = parseFloat(s);
+        return isNaN(parsed) ? 0 : parsed;
+    }
+
     static async importaListino(utenteId: number, fornitoreId: number): Promise<{ total: number; success: boolean; error?: string }> {
         logger.info(`[IMPORT] Inizio elaborazione utente ${utenteId} - fornitore ${fornitoreId}`);
 
@@ -220,8 +265,8 @@ export class ImportService {
                 const categoria = row[map['categoria']]?.toString().toLowerCase() || '';
                 if (categoria.includes('usato') || categoria.includes('fine serie')) return;
 
-                const prezzoRaw = (row[map['prezzo']] || '0').toString().replace(',', '.');
-                const prezzo = parseFloat(prezzoRaw);
+                const prezzoRaw = row[map['prezzo']];
+                const prezzo = ImportService.parseItalianPrice(prezzoRaw);
 
                 const quantitaRaw = (row[map['quantita']] || '0').toString();
                 const quantita = parseInt(quantitaRaw);
@@ -297,8 +342,9 @@ export class ImportService {
 
                     if (!ean && (!marca || !partNumber)) return null;
 
-                    const prezzoRaw = (row[map['prezzo']] || row['PrezzoPers'] || '0').toString().replace(',', '.');
-                    const prezzo = parseFloat(prezzoRaw);
+                    const prezzoRaw = row[map['prezzo']] || row['PrezzoPers'];
+                    const prezzo = ImportService.parseItalianPrice(prezzoRaw);
+
                     const quantitaRaw = (row[map['quantita']] || row['Dispo'] || '0').toString();
                     const quantita = parseInt(quantitaRaw);
 

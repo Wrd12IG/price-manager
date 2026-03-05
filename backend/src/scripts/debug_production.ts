@@ -15,11 +15,12 @@ async function debug() {
         });
         console.log('Active Jobs:', activeJobs);
 
-        const shopifyConfigs = await prisma.configurazioneShopify.findMany();
-        console.log('Shopify Configs count:', shopifyConfigs.length);
-
+        const shopifyConfigs = await prisma.configurazioneSistema.findMany({
+            where: { chiave: 'shopify_shop_url' }
+        });
+        console.log('Shopify Configs:', shopifyConfigs);
     } catch (e) {
-        console.error('Debug Error:', e);
+        console.log('Debug Error:', e);
     } finally {
         await prisma.$disconnect();
     }

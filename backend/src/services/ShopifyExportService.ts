@@ -54,6 +54,26 @@ export class ShopifyExportService {
     }
 
     /**
+     * 🗂️ Risolve la categoria interna nel productType Shopify
+     * tramite la mappatura configurata in ConfigurazioneSistema.
+     */
+    private static async resolveProductType(utenteId: number, categoriaInterna: string): Promise<string> {
+        try {
+            const cfg = await prisma.configurazioneSistema.findFirst({
+                where: { utenteId, chiave: 'shopify_category_mapping' }
+            });
+            if (cfg?.valore) {
+                const mapping: Record<string, string> = JSON.parse(cfg.valore);
+                if (mapping[categoriaInterna]) return mapping[categoriaInterna];
+                // Cerca case-insensitive
+                const key = Object.keys(mapping).find(k => k.toLowerCase() === categoriaInterna.toLowerCase());
+                if (key) return mapping[key];
+            }
+        } catch (_) { }
+        return categoriaInterna; // Fallback: usa il nome categoria originale
+    }
+
+    /**
      * Genera record per export Shopify per un utente
      */
     static async generateExport(utenteId: number, jobId?: string): Promise<any[]> {
@@ -65,21 +85,66 @@ export class ShopifyExportService {
             include: {
                 marchio: { select: { nome: true } },
                 categoria: { select: { nome: true } },
-                outputShopify: { select: { id: true, metafieldsJson: true } },
+                outputShopify: { select: { id: true, metafieldsJson: true, statoCaricamento: true, shopifyProductId: true } },
                 datiIcecat: true
             }
         });
 
         logger.info(`📊 [Utente ${utenteId}] Analisi ${products.length} prodotti per export`);
 
-        // 2. FILTRA QUELLI CHE NON HANNO ANCORA UN RECORD DI OUTPUT O HANNO TABELLA VUOTA
+        // ─────────────────────────────────────────────────────────────
+        // 2a. PRODOTTI GIÀ CARICATI SU SHOPIFY → aggiorna SOLO prezzo e disponibilità
+        //     NON rimettere a 'pending', altrimenti il sync li ricrea come nuovi prodotti (duplicati!)
+        // ─────────────────────────────────────────────────────────────
+        const alreadyUploaded = products.filter(p =>
+            p.outputShopify && (p.outputShopify as any).statoCaricamento === 'uploaded'
+        );
+
+        if (alreadyUploaded.length > 0) {
+            logger.info(`🔄 [Utente ${utenteId}] Aggiornamento prezzo/qty per ${alreadyUploaded.length} prodotti già su Shopify...`);
+            let updatedPriceCount = 0;
+            for (const p of alreadyUploaded) {
+                const newPrice = p.prezzoVenditaCalcolato || 0;
+                const newQty = p.quantitaTotaleAggregata || 0;
+                await prisma.outputShopify.update({
+                    where: { masterFileId: p.id },
+                    data: {
+                        variantPrice: newPrice,
+                        variantInventoryQty: newQty,
+                        // Segna come 'price_update' così syncProducts invia un PUT a Shopify
+                        // senza creare un nuovo prodotto (NON 'pending', che causerebbe un POST!)
+                        statoCaricamento: 'price_update'
+                    }
+                });
+                updatedPriceCount++;
+            }
+            logger.info(`✅ Segnati ${updatedPriceCount} prodotti esistenti per aggiornamento prezzo/qty su Shopify`);
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // 2b. PRODOTTI NUOVI (nessun record outputShopify) o
+        //     PRODOTTI IN PENDING con tabella spec corta → riprocess completo
+        // ─────────────────────────────────────────────────────────────
         const productsNeedingExport = products.filter(p => {
+            // Nessun record ancora: serve creazione completa
             if (!p.outputShopify) return true;
 
-            // Se ha già un record, controlliamo se la tabella specifiche è mancante o troppo corta
+            const stato = (p.outputShopify as any).statoCaricamento;
+
+            // Già caricato su Shopify: gestito nel blocco sopra, non riprocessare
+            if (stato === 'uploaded') return false;
+
+            // ⚠️ In attesa di aggiornamento prezzo/qty: NON resettare a 'pending'!
+            // Altrimenti il sync farà una POST (nuovo prodotto) invece di PUT (aggiornamento) → DUPLICATO!
+            if (stato === 'price_update') return false;
+
+            // Prodotto in blacklist: non toccare mai
+            if (stato === 'blacklisted') return false;
+
+            // Prodotto in pending o in errore: rigenera solo se la tabella spec è corta/assente
             const meta = p.outputShopify.metafieldsJson ? JSON.parse(p.outputShopify.metafieldsJson) : {};
             const tableLen = meta['custom.tabella_specifiche']?.length || 0;
-            return tableLen < 100; // Se la tabella è meno di 100 caratteri, consideriamola da rigenerare
+            return tableLen < 100;
         });
 
         if (productsNeedingExport.length > 0) {
@@ -114,10 +179,6 @@ export class ShopifyExportService {
                 let metafieldsObj: Record<string, string> = {};
 
                 try {
-                    // Il servizio avanzato:
-                    // 1. Estrae da ICECAT se disponibile
-                    // 2. Completa con web scraping + AI se necessario
-                    // 3. Valida al 100% i dati trovati
                     metafieldsObj = await EnhancedMetafieldService.generateCompleteMetafields(
                         utenteId,
                         {
@@ -162,7 +223,7 @@ export class ShopifyExportService {
                     title: title,
                     bodyHtml: bodyHtml,
                     vendor: vendor,
-                    productType: p.categoria?.nome || 'Hardware',
+                    productType: await this.resolveProductType(utenteId, p.categoria?.nome || 'Hardware'),
                     sku: p.partNumber || `SKU-${p.id}`,
                     barcode: p.eanGtin,
                     variantPrice: p.prezzoVenditaCalcolato || 0,
@@ -174,6 +235,8 @@ export class ShopifyExportService {
                     statoCaricamento: 'pending'
                 };
 
+                // Upsert solo per prodotti NON ancora caricati su Shopify
+                // (quelli 'uploaded' sono stati già gestiti sopra con solo prezzo/qty)
                 await prisma.outputShopify.upsert({
                     where: { masterFileId: p.id },
                     update: outputData,
@@ -190,11 +253,7 @@ export class ShopifyExportService {
         const productsNeedingAI = await prisma.outputShopify.findMany({
             where: {
                 utenteId,
-                OR: [
-                    { metafieldsJson: null },
-                    { metafieldsJson: { not: { contains: 'custom.tabella_specifiche' } } },
-                    { metafieldsJson: { contains: '"custom.tabella_specifiche":"<table' } } // Fallback se la tabella è troppo corta
-                ]
+                isAiEnriched: false
             },
             include: {
                 masterFile: {
@@ -208,15 +267,28 @@ export class ShopifyExportService {
             take: 20
         });
 
-        // Filtriamo quelli che hanno effettivamente una tabella corta o mancante
-        const filteredNeedsAI = productsNeedingAI.filter(p => {
-            if (!p.metafieldsJson) return true;
-            try {
-                const meta = JSON.parse(p.metafieldsJson);
-                const table = meta['custom.tabella_specifiche'] || '';
-                return table.length < 100;
-            } catch (e) { return true; }
-        });
+        // Filtriamo e aggiorniamo istantaneamente i prodotti che NON necessitano di AI
+        const filteredNeedsAI = [];
+        for (const p of productsNeedingAI) {
+            let needsAi = true;
+            if (p.metafieldsJson) {
+                try {
+                    const meta = JSON.parse(p.metafieldsJson);
+                    const table = meta['custom.tabella_specifiche'] || '';
+                    if (table.length >= 100) needsAi = false;
+                } catch (e) { }
+            }
+
+            if (!needsAi) {
+                // Il prodotto ha già specifiche lunghe valide, lo tiriamo fuori dalla coda a costo zero
+                await prisma.outputShopify.update({
+                    where: { id: p.id },
+                    data: { isAiEnriched: true }
+                });
+            } else {
+                filteredNeedsAI.push(p);
+            }
+        }
 
         if (filteredNeedsAI.length > 0) {
             logger.info(`   📋 Trovati ${filteredNeedsAI.length} prodotti da arricchire con AI`);
@@ -240,19 +312,41 @@ export class ShopifyExportService {
                         const existingMeta = product.metafieldsJson ? JSON.parse(product.metafieldsJson) : {};
                         const mergedMeta = { ...existingMeta, ...aiMetafields };
 
+                        // ⚠️ Non resettare a 'pending' se è già 'uploaded' (evita duplicati!)
+                        const updateData: any = {
+                            metafieldsJson: JSON.stringify(mergedMeta),
+                            isAiEnriched: true // Segnato correttamente!
+                        };
+
+                        // Sostituisce il titolo tecnico originale col nuovo titolo SEO se generato dall'AI,
+                        // ma SOLO SE il prodotto non è già stato caricato su Shopify (evita sovrascritture di titoli custom dati dall'utente in Shopify)
+                        if (aiMetafields['seo.titolo_ottimizzato'] && product.statoCaricamento !== 'uploaded') {
+                            updateData.title = aiMetafields['seo.titolo_ottimizzato'].substring(0, 255);
+                        }
+
+                        if (product.statoCaricamento !== 'uploaded') {
+                            updateData.statoCaricamento = 'pending';
+                        }
+
                         await prisma.outputShopify.update({
                             where: { id: product.id },
-                            data: {
-                                metafieldsJson: JSON.stringify(mergedMeta),
-                                statoCaricamento: 'pending'
-                            }
+                            data: updateData
                         });
                         logger.info(`      ✅ Dati generati con AI`);
                     } else {
                         logger.warn(`      ⚠️ AI non ha generato metafields`);
+                        // Segnamo a true per non rimanerci bloccati per l'eternità
+                        await prisma.outputShopify.update({
+                            where: { id: product.id },
+                            data: { isAiEnriched: true }
+                        });
                     }
                 } catch (error: any) {
                     logger.error(`      ❌ Errore AI: ${error.message}`);
+                    await prisma.outputShopify.update({
+                        where: { id: product.id },
+                        data: { isAiEnriched: true }
+                    });
                 }
             }
         }

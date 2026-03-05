@@ -108,9 +108,51 @@ export const createCategoria = asyncHandler(async (req: AuthRequest, res: Respon
 });
 
 export const updateCategoria = asyncHandler(async (req: AuthRequest, res: Response) => {
-    res.status(403).json({ success: false, error: 'Funzionalità riservata agli amministratori' });
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    const { id } = req.params;
+    const { nome, attivo, note } = req.body;
+
+    if (!nome || !nome.trim()) throw new AppError('Il nome della categoria è obbligatorio', 400);
+
+    // Verifica ownership: l'utente deve avere almeno un prodotto con questa categoria
+    const hasProduct = await prisma.masterFile.findFirst({
+        where: { categoriaId: parseInt(id), utenteId }
+    });
+    if (!hasProduct) throw new AppError('Categoria non trovata o non associata ai tuoi prodotti', 403);
+
+    const normalizzato = nome.trim().toUpperCase();
+    const categoria = await prisma.categoria.update({
+        where: { id: parseInt(id) },
+        data: { nome: nome.trim(), normalizzato, attivo: attivo ?? true, note: note || null }
+    });
+
+    logger.info(`Categoria aggiornata da utente ${utenteId}: ${categoria.nome}`);
+    res.json({ success: true, data: categoria });
 });
 
 export const deleteCategoria = asyncHandler(async (req: AuthRequest, res: Response) => {
-    res.status(403).json({ success: false, error: 'Funzionalità riservata agli amministratori' });
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    const { id } = req.params;
+
+    // Verifica ownership
+    const hasProduct = await prisma.masterFile.findFirst({
+        where: { categoriaId: parseInt(id), utenteId }
+    });
+    if (!hasProduct) throw new AppError('Categoria non trovata o non associata ai tuoi prodotti', 403);
+
+    // Controlla che non sia usata
+    const usageCount = await prisma.categoria.findUnique({
+        where: { id: parseInt(id) },
+        include: { _count: { select: { masterFiles: true, regoleMarkup: true } } }
+    });
+    const total = (usageCount?._count.masterFiles ?? 0) + (usageCount?._count.regoleMarkup ?? 0);
+    if (total > 0) throw new AppError(`Impossibile eliminare: la categoria è usata in ${total} record`, 409);
+
+    await prisma.categoria.delete({ where: { id: parseInt(id) } });
+    logger.info(`Categoria eliminata da utente ${utenteId}: ID ${id}`);
+    res.json({ success: true, message: 'Categoria eliminata' });
 });

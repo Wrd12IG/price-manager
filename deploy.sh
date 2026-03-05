@@ -19,8 +19,17 @@ npm run build
 cd ..
 
 # 3. Deploy Frontend Static Files
-echo "📤 Syncing Frontend to Server..."
-rsync -avz --delete frontend/dist/ $SERVER:$REMOTE_PATH/public/
+echo "📤 Clearing remote assets and pushing Frontend to Server..."
+ssh $SERVER "rm -rf $REMOTE_PATH/public/assets/* && mkdir -p $REMOTE_PATH/public/assets"
+# Copia index.html
+cat frontend/dist/index.html | ssh $SERVER "cat > $REMOTE_PATH/public/index.html"
+# Copia ogni asset (css + js) uno per uno in modo affidabile
+for f in frontend/dist/assets/*; do
+    BASENAME=$(basename "$f")
+    echo "   → Upload $BASENAME"
+    cat "$f" | ssh $SERVER "cat > $REMOTE_PATH/public/assets/$BASENAME"
+done
+echo "   ✅ Frontend assets caricati"
 
 # 4. Deploy Backend Source (excluding node_modules and env)
 echo "📤 Syncing Backend to Server..."

@@ -18,7 +18,9 @@ export const getDashboardStats = asyncHandler(async (req: AuthRequest, res: Resp
             (prisma.fornitore as any).count({ where: isAdmin ? {} : { utenteId } }),
             (prisma.masterFile as any).count({ where: isAdmin ? {} : { utenteId } }),
             (prisma.logElaborazione as any).findFirst({
-                where: isAdmin ? { stato: 'completed' } : { utenteId, stato: 'completed' },
+                where: isAdmin
+                    ? { stato: { in: ['success', 'completed'] } }
+                    : { utenteId, stato: { in: ['success', 'completed'] } },
                 orderBy: { dataEsecuzione: 'desc' },
                 select: { dataEsecuzione: true }
             }),

@@ -128,15 +128,38 @@ export class IcecatService {
     private static async enrichSingleProduct(utenteId: number, product: any, credentials: { username: string; password: string }): Promise<boolean> {
         try {
             let data = await this.fetchProductData(product.eanGtin, credentials);
+            let usedMpnFallback = false;
 
             if (!data) {
                 const raw = await prisma.listinoRaw.findFirst({ where: { utenteId, eanGtin: product.eanGtin }, select: { partNumber: true } });
                 if (raw?.partNumber && product.marchio?.nome) {
                     data = await this.fetchProductData(product.eanGtin, credentials, raw.partNumber, product.marchio.nome);
+                    usedMpnFallback = true;
                 }
             }
 
             if (!data) return false;
+
+            // ✅ VALIDAZIONE EAN: confronta l'EAN restituito da Icecat con quello che abbiamo interrogato.
+            // Se Icecat restituisce un prodotto con EAN diverso (EAN condiviso/riutilizzato nel loro DB),
+            // i dati vengono SCARTATI indipendentemente dal marchio.
+            // Nota: quando si cerca per MPN/brand il campo EAN nella risposta potrebbe essere diverso → ok.
+            if (!usedMpnFallback) {
+                // Icecat restituisce l'EAN negli attributi XML: EAN_UPC o EAN
+                const returnedEan: string = (
+                    data?.$?.EAN_UPC ||
+                    data?.$?.['@_EAN_UPC'] ||
+                    data?.EAN_UPC ||
+                    ''
+                ).toString().trim().replace(/^0+/, ''); // normalizza rimuovendo zeri iniziali
+
+                const queriedEan = product.eanGtin.toString().trim().replace(/^0+/, '');
+
+                if (returnedEan && returnedEan !== queriedEan) {
+                    logger.warn(`⚠️ [Icecat] EAN MISMATCH per prodotto ID ${product.id}: interrogato '${queriedEan}' → Icecat ha restituito '${returnedEan}'. Dati SCARTATI (EAN condiviso o errato nel DB Icecat).`);
+                    return false;
+                }
+            }
 
             const extracted = this.extractProductData(data);
             await prisma.datiIcecat.upsert({

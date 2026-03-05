@@ -22,7 +22,14 @@ npm install
 npm run build
 cd ..
 
-# 2. Copia l'output della build del frontend nella cartella public del backend
+# 2. Build Backend
+echo "📦 Building Backend..."
+cd "$BACKEND_DIR"
+npm install
+npm run build
+cd ..
+
+# 3. Copia l'output della build del frontend nella cartella public del backend
 echo "🚚 Copying frontend assets to backend/public..."
 mkdir -p "$BACKEND_DIR/public"
 rm -rf "$BACKEND_DIR/public"/*
@@ -68,8 +75,9 @@ ls -la public/assets || echo "⚠️ Cartella assets non trovata!"
 # Installa dipendenze
 npm install --production
 
-# Genera Prisma client
+# Genera Prisma client e aggiorna schema DB
 npx prisma generate
+npx prisma db push --accept-data-loss
 
 # Riavvia applicazione
 echo "🔄 Riavvio PM2..."

@@ -9,6 +9,9 @@ import { AuthRequest } from '../middleware/auth.middleware';
  * Ottiene il catalogo consolidato paginato (Multi-Tenant)
  */
 export const getMasterFile = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
     const isAdmin = req.user?.ruolo === 'admin' || utenteId === 1;
     const effectiveUtenteId = isAdmin ? null : utenteId;
 

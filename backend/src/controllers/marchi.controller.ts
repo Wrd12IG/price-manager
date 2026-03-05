@@ -108,16 +108,72 @@ export const createMarchio = asyncHandler(async (req: AuthRequest, res: Response
 });
 
 export const updateMarchio = asyncHandler(async (req: AuthRequest, res: Response) => {
-    // Solo admin per ora
-    res.status(403).json({ success: false, error: 'Funzionalità riservata agli amministratori' });
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    const { id } = req.params;
+    const { nome, attivo, note } = req.body;
+
+    if (!nome || !nome.trim()) throw new AppError('Il nome del marchio è obbligatorio', 400);
+
+    // Verifica che l'utente abbia almeno un prodotto con questo marchio (ownership)
+    const hasProduct = await prisma.masterFile.findFirst({
+        where: { marchioId: parseInt(id), utenteId }
+    });
+    if (!hasProduct) throw new AppError('Marchio non trovato o non associato ai tuoi prodotti', 403);
+
+    const normalizzato = nome.trim().toUpperCase();
+    const marchio = await prisma.marchio.update({
+        where: { id: parseInt(id) },
+        data: { nome: nome.trim(), normalizzato, attivo: attivo ?? true, note: note || null }
+    });
+
+    logger.info(`Marchio aggiornato da utente ${utenteId}: ${marchio.nome}`);
+    res.json({ success: true, data: marchio });
 });
 
 export const deleteMarchio = asyncHandler(async (req: AuthRequest, res: Response) => {
-    // Solo admin per ora
-    res.status(403).json({ success: false, error: 'Funzionalità riservata agli amministratori' });
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    const { id } = req.params;
+
+    // Verifica ownership: l'utente deve avere almeno un prodotto con questo marchio
+    const hasProduct = await prisma.masterFile.findFirst({
+        where: { marchioId: parseInt(id), utenteId }
+    });
+    if (!hasProduct) throw new AppError('Marchio non trovato o non associato ai tuoi prodotti', 403);
+
+    // Controlla che non sia usato (prodotti, regole markup, filtri)
+    const usageCount = await prisma.marchio.findUnique({
+        where: { id: parseInt(id) },
+        include: { _count: { select: { masterFiles: true, regoleMarkup: true } } }
+    });
+    const total = (usageCount?._count.masterFiles ?? 0) + (usageCount?._count.regoleMarkup ?? 0);
+    if (total > 0) throw new AppError(`Impossibile eliminare: il marchio è usato in ${total} record`, 409);
+
+    await prisma.marchio.delete({ where: { id: parseInt(id) } });
+    logger.info(`Marchio eliminato da utente ${utenteId}: ID ${id}`);
+    res.json({ success: true, message: 'Marchio eliminato' });
 });
 
 export const cleanupMarchi = asyncHandler(async (req: AuthRequest, res: Response) => {
-    // Solo admin per ora
-    res.status(403).json({ success: false, error: 'Funzionalità riservata agli amministratori' });
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    // Trova marchi che NON hanno prodotti nel masterFile dell'utente
+    const usedMarchioIds = (await prisma.masterFile.findMany({
+        where: { utenteId, marchioId: { not: null } },
+        select: { marchioId: true },
+        distinct: ['marchioId']
+    })).map(m => m.marchioId!) as number[];
+
+    // Marca come inattivi quelli inutilizzati (non li elimina per sicurezza)
+    const result = await prisma.marchio.updateMany({
+        where: { id: { notIn: usedMarchioIds }, attivo: true },
+        data: { attivo: false }
+    });
+
+    logger.info(`Cleanup marchi: disattivati ${result.count} marchi inutilizzati`);
+    res.json({ success: true, message: `Disattivati ${result.count} marchi non utilizzati`, data: { count: result.count } });
 });

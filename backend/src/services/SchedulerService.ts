@@ -36,6 +36,40 @@ export class SchedulerService {
 
             logger.info(`✅ Scheduler configurato per ${utente.email}: ${schedules.length} regole.`);
         }
+
+        // 5. Avvia Global Maintenance Job (Pulizia Notturna Database)
+        this.scheduleDatabaseMaintenance();
+    }
+
+    /**
+     * Schedula la routine di manutenzione indipendente e globale del Database
+     * Gira ogni notte alle 04:00 AM e cancella i log più vecchi di 30 giorni
+     */
+    private static scheduleDatabaseMaintenance() {
+        const expression = '0 4 * * *'; // Alle 4 del mattino di ogni giorno
+        const taskKey = 'GLOBAL_DB_MAINTENANCE';
+
+        const task = cron.schedule(expression, async () => {
+            logger.info('🧹 [Manutenzione] Avvio pulizia automatica log vecchi...');
+            try {
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                const deleteResult = await prisma.logElaborazione.deleteMany({
+                    where: {
+                        createdAt: {
+                            lt: thirtyDaysAgo
+                        }
+                    }
+                });
+
+                logger.info(`✅ [Manutenzione] Pulizia completata: rimossi ${deleteResult.count} log più vecchi di 30 giorni.`);
+            } catch (err: any) {
+                logger.error('❌ [Manutenzione] Errore durante la pulizia dei log:', err.message);
+            }
+        });
+
+        this.activeTasks.set(taskKey, task);
     }
 
     /**
@@ -358,6 +392,8 @@ export class SchedulerService {
 
                         const { AIEnrichmentService } = await import('./AIEnrichmentService');
                         let totalEnriched = 0;
+                        // processBatch processa solo prodotti CON datiIcecat ma SENZA outputShopify ancora generato
+                        // Limit = 500 per garantire che il workflow elabori tutto in una sessione
                         for (let i = 0; i < 20; i++) {
                             const batchResult = await AIEnrichmentService.processBatch(utenteId, 50, async (currentBatchSuccess) => {
                                 // Update log in real-time so the user sees progress in the UI
@@ -413,7 +449,8 @@ export class SchedulerService {
                         const logFase4 = await this.createLog(utenteId, 'SYNC_SHOPIFY');
                         const startFase4 = Date.now();
 
-                        const syncResult = await ShopifyService.syncProducts(utenteId);
+                        // skipExportGeneration=true: la Fase 3 ha già chiamato generateExport, evitiamo un doppio passaggio
+                        const syncResult = await ShopifyService.syncProducts(utenteId, true);
 
                         phases.push({
                             numero: 4,
