@@ -87,7 +87,7 @@ export class ShopifyService {
         const totalPending = await prisma.outputShopify.count({
             where: {
                 utenteId,
-                statoCaricamento: { in: ['pending', 'error', 'price_update'] }
+                statoCaricamento: { in: ['pending', 'error', 'price_update', 'image_update'] }
             }
         });
 
@@ -123,7 +123,7 @@ export class ShopifyService {
             const products = await prisma.outputShopify.findMany({
                 where: {
                     utenteId,
-                    statoCaricamento: { in: ['pending', 'error', 'price_update'] }
+                    statoCaricamento: { in: ['pending', 'error', 'price_update', 'image_update'] }
                 },
                 take: BATCH_SIZE
             });
@@ -243,6 +243,20 @@ export class ShopifyService {
 
                     // Per 'price_update': payload leggero con solo prezzo e qty (no ricreare tutto il prodotto)
                     const isPriceUpdateOnly = p.statoCaricamento === 'price_update';
+                    const isImageUpdate = p.statoCaricamento === 'image_update';
+
+                    // 🖼️ SE richiesto aggiornamento immagini: esegui prima il reset
+                    if (isImageUpdate && productId && p.immaginiUrls) {
+                        try {
+                            const newImages = JSON.parse(p.immaginiUrls);
+                            if (Array.isArray(newImages)) {
+                                syncLog(utenteId, 'info', `📸 Aggiornamento immagini per ${p.sku}...`);
+                                await this.updateProductImages(utenteId, productId, newImages);
+                            }
+                        } catch (e) {
+                            logger.error(`Errore parsing immagini per updateProductImages: ${e.message}`);
+                        }
+                    }
 
                     while (attempts < maxAttempts && !productSynced) {
                         try {
@@ -498,12 +512,13 @@ export class ShopifyService {
     }
 
     static async getSyncProgress(utenteId: number) {
-        const [total, pending, uploaded, errors, priceUpdates] = await Promise.all([
+        const [total, pending, uploaded, errors, priceUpdates, imageUpdates] = await Promise.all([
             prisma.outputShopify.count({ where: { utenteId } }),
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'pending' } }),
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'uploaded' } }),
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'error' } }),
-            prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'price_update' } })
+            prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'price_update' } }),
+            prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'image_update' } })
         ]);
 
         return {
@@ -512,6 +527,7 @@ export class ShopifyService {
             uploaded,
             errors,
             priceUpdates,
+            imageUpdates,
             percentage: total > 0 ? Math.round((uploaded / total) * 100) : 0
         };
     }
@@ -539,6 +555,69 @@ export class ShopifyService {
         } catch (error: any) {
             const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
             logger.error(`❌ [Shopify] Errore eliminazione prodotto ${shopifyProductId}: ${errorMsg}`);
+            return false;
+        }
+    }
+
+    /**
+     * 🖼️ Aggiorna le immagini su Shopify (Clean & Re-upload)
+     * Elimina tutte le foto esistenti e carica quelle nuove per evitare duplicati.
+     */
+    static async updateProductImages(utenteId: number, shopifyProductId: string, newImages: string[]): Promise<boolean> {
+        const config = await this.getConfig(utenteId);
+        if (!config.configured) return false;
+        const token = await this.getAccessToken(utenteId);
+        if (!token) return false;
+
+        const cleanShopUrl = config.shopUrl.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '').split('/')[0];
+
+        try {
+            logger.info(`📸 [Shopify] Reset immagini per prodotto ${shopifyProductId}...`);
+
+            // 1. Recupera immagini esistenti per ottenere i loro ID
+            const getResp = await axios.get(
+                `https://${cleanShopUrl}/admin/api/2024-01/products/${shopifyProductId}/images.json`,
+                { headers: { 'X-Shopify-Access-Token': token }, timeout: 15000 }
+            );
+
+            const existingImages = getResp.data?.images || [];
+            logger.info(`   - Trovate ${existingImages.length} immagini attuali su Shopify.`);
+
+            // 2. Elimina ogni immagine esistente
+            for (const img of existingImages) {
+                try {
+                    await axios.delete(
+                        `https://${cleanShopUrl}/admin/api/2024-01/products/${shopifyProductId}/images/${img.id}.json`,
+                        { headers: { 'X-Shopify-Access-Token': token }, timeout: 15000 }
+                    );
+                    // Rate limit: Shopify Leaky Bucket
+                    await new Promise(r => setTimeout(r, 550));
+                } catch (e: any) {
+                    logger.warn(`   ⚠️ Errore eliminazione immagine ${img.id}: ${e.message}`);
+                }
+            }
+
+            // 3. Carica le nuove immagini
+            if (newImages.length > 0) {
+                logger.info(`   - Caricamento di ${newImages.length} nuove immagini...`);
+                const payload = {
+                    product: {
+                        id: shopifyProductId,
+                        images: newImages.map(url => ({ src: url }))
+                    }
+                };
+
+                await axios.put(
+                    `https://${cleanShopUrl}/admin/api/2024-01/products/${shopifyProductId}.json`,
+                    payload,
+                    { headers: { 'X-Shopify-Access-Token': token }, timeout: 60000 }
+                );
+            }
+
+            logger.info(`✅ Aggiornamento immagini completato per ${shopifyProductId}`);
+            return true;
+        } catch (error: any) {
+            logger.error(`❌ Errore aggiornamento immagini per ${shopifyProductId}: ${error.message}`);
             return false;
         }
     }

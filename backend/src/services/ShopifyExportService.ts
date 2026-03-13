@@ -106,14 +106,23 @@ export class ShopifyExportService {
             for (const p of alreadyUploaded) {
                 const newPrice = p.prezzoVenditaCalcolato || 0;
                 const newQty = p.quantitaTotaleAggregata || 0;
+                const newImages = p.datiIcecat?.urlImmaginiJson;
+                const oldImages = (p as any).outputShopify?.immaginiUrls;
+
+                // 🖼️ Rilevamento cambiamenti immagini per aggiornamento intelligente
+                let finalStato = 'price_update';
+                if (newImages && oldImages && newImages !== oldImages) {
+                    logger.info(`📸 [Utente ${utenteId}] Cambiamento immagini rilevato per ${p.eanGtin}. Richiesto image_update.`);
+                    finalStato = 'image_update';
+                }
+
                 await prisma.outputShopify.update({
                     where: { masterFileId: p.id },
                     data: {
                         variantPrice: newPrice,
                         variantInventoryQty: newQty,
-                        // Segna come 'price_update' così syncProducts invia un PUT a Shopify
-                        // senza creare un nuovo prodotto (NON 'pending', che causerebbe un POST!)
-                        statoCaricamento: 'price_update'
+                        immaginiUrls: newImages, // Aggiorna gli URL locali per il sync
+                        statoCaricamento: finalStato
                     }
                 });
                 updatedPriceCount++;
