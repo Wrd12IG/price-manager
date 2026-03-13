@@ -258,6 +258,24 @@ export class ShopifyService {
                         }
                     }
 
+                    // 🛡️ PROTEZIONE PRODOTTI MANUALI: Se non abbiamo un ID, cerchiamo per SKU prima di creare
+                    if (!productId && p.sku) {
+                        const existingId = await this.findProductBySku(utenteId, p.sku);
+                        if (existingId) {
+                            syncLog(utenteId, 'warn', `🛡️ SKU ${p.sku} già presente su Shopify (ID: ${existingId}). Protezione attivata: prodotto messo in BLACKLIST.`);
+                            await prisma.outputShopify.update({
+                                where: { id: p.id },
+                                data: {
+                                    shopifyProductId: existingId,
+                                    statoCaricamento: 'blacklisted',
+                                    errorMessage: 'SKU già esistente su Shopify (caricato manualmente). Prodotto protetto da modifiche.'
+                                }
+                            });
+                            // Salta la sincronizzazione per questo prodotto
+                            continue;
+                        }
+                    }
+
                     while (attempts < maxAttempts && !productSynced) {
                         try {
                             attempts++;
@@ -556,6 +574,57 @@ export class ShopifyService {
             const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
             logger.error(`❌ [Shopify] Errore eliminazione prodotto ${shopifyProductId}: ${errorMsg}`);
             return false;
+        }
+    }
+
+    /**
+     * 🔍 Cerca un prodotto su Shopify tramite SKU (GraphQL)
+     * Utile per evitare duplicati di prodotti caricati manualmente.
+     */
+    static async findProductBySku(utenteId: number, sku: string): Promise<string | null> {
+        const config = await this.getConfig(utenteId);
+        if (!config.configured) return null;
+        const token = await this.getAccessToken(utenteId);
+        if (!token) return null;
+
+        const cleanShopUrl = config.shopUrl.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '').split('/')[0];
+
+        try {
+            // Utilizziamo GraphQL perché è molto più efficiente per la ricerca per SKU
+            const query = `
+            {
+              products(first: 1, query: "sku:${sku}") {
+                edges {
+                  node {
+                    id
+                  }
+                }
+              }
+            }`;
+
+            const response = await axios.post(
+                `https://${cleanShopUrl}/admin/api/2024-01/graphql.json`,
+                { query },
+                {
+                    headers: {
+                        'X-Shopify-Access-Token': token,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 15000
+                }
+            );
+
+            const edges = response.data?.data?.products?.edges || [];
+            if (edges.length > 0) {
+                // Shopify GraphQL ID format: gid://shopify/Product/123456789
+                const fullId = edges[0].node.id;
+                return fullId.split('/').pop() || null;
+            }
+
+            return null;
+        } catch (error: any) {
+            logger.error(`❌ Errore ricerca prodotto per SKU ${sku}: ${error.message}`);
+            return null;
         }
     }
 
