@@ -7,15 +7,19 @@ async function runFullProcess() {
     console.log('🚀 AVVIO PROCESSO COMPLETO DI AGGIORNAMENTO\n');
 
     try {
+        const user = await prisma.utente.findFirst();
+        if (!user) throw new Error('User not found');
+
         // 1. Ricalcolo Prezzi
         console.log('1️⃣  Ricalcolo Prezzi (Markup)...');
-        const markupResult = await MarkupService.applicaRegolePrezzi();
-        console.log(`   ✅ Prezzi aggiornati: ${markupResult.updated} (Processati: ${markupResult.processed})`);
+        const markupResult = await MarkupService.applicaRegolePrezzi(user.id);
+        console.log(`   ✅ Prezzi aggiornati: ${markupResult.updated}`);
 
         // 2. Preparazione Export Shopify (genera Metafields)
         console.log('\n2️⃣  Preparazione Export Shopify (Metafields)...');
-        // Nota: prepareExport potrebbe non ritornare statistiche, controlliamo i log
-        await ShopifyService.prepareExport();
+        // Usiamo ShopifyExportService direttamente per la generazione
+        const { ShopifyExportService } = await import('../services/ShopifyExportService');
+        await ShopifyExportService.generateExport(user.id);
         console.log('   ✅ Export preparato');
 
         // 3. Verifica Risultati
@@ -24,7 +28,7 @@ async function runFullProcess() {
         // Verifica Markup Notebook
         const notebooks = await prisma.masterFile.count({
             where: {
-                categoriaEcommerce: { contains: 'NOTEBOOK' },
+                categoria: { nome: { contains: 'NOTEBOOK' } },
                 prezzoVenditaCalcolato: { gt: 0 }
             }
         });

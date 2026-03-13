@@ -1,6 +1,7 @@
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { ShopifyService } from './ShopifyService';
+import { EnhancedMetafieldService } from './EnhancedMetafieldService';
 
 export class ManualProductService {
     /**
@@ -26,24 +27,45 @@ export class ManualProductService {
             });
         }
 
-        // 2. Trova o crea Marchio e Categoria
+        // 2. Trova o crea Marchio
         let marchioId: number | null = null;
-        if (marca) {
-            const m = await prisma.marchio.upsert({
-                where: { nome: marca.trim() },
-                update: {},
-                create: { nome: marca.trim(), normalizzato: marca.trim().toUpperCase() }
+        const marcaNome = marca?.trim();
+        if (marcaNome) {
+            let m = await prisma.marchio.findFirst({
+                where: {
+                    OR: [
+                        { nome: { equals: marcaNome, mode: 'insensitive' } },
+                        { normalizzato: marcaNome.toUpperCase() }
+                    ]
+                }
             });
+
+            if (!m) {
+                m = await prisma.marchio.create({
+                    data: { nome: marcaNome, normalizzato: marcaNome.toUpperCase() }
+                });
+            }
             marchioId = m.id;
         }
 
+        // 2b. Trova o crea Categoria
         let categoriaId: number | null = null;
-        if (categoria) {
-            const c = await prisma.categoria.upsert({
-                where: { nome: categoria.trim() },
-                update: {},
-                create: { nome: categoria.trim(), normalizzato: categoria.trim().toUpperCase() }
+        const catNome = categoria?.trim();
+        if (catNome) {
+            let c = await prisma.categoria.findFirst({
+                where: {
+                    OR: [
+                        { nome: { equals: catNome, mode: 'insensitive' } },
+                        { normalizzato: catNome.toUpperCase() }
+                    ]
+                }
             });
+
+            if (!c) {
+                c = await prisma.categoria.create({
+                    data: { nome: catNome, normalizzato: catNome.toUpperCase() }
+                });
+            }
             categoriaId = c.id;
         }
 
@@ -99,7 +121,32 @@ export class ManualProductService {
             });
         }
 
-        // 5. Crea record OutputShopify per permettere il push
+        // 5. Genera i Metafields strutturati
+        let metafieldsJson = '{}';
+        try {
+            const metafieldsObj = await EnhancedMetafieldService.generateCompleteMetafields(
+                utenteId,
+                {
+                    id: masterFile.id,
+                    eanGtin: ean,
+                    nomeProdotto: nome,
+                    marchio: { nome: marca || 'Generico' },
+                    categoria: { nome: categoria || 'Manuale' },
+                    datiIcecat: {
+                        descrizioneBrave: descrizione?.substring(0, 200) || '',
+                        descrizioneLunga: descrizione || '',
+                        specificheTecnicheJson: JSON.stringify(specifiche || []),
+                        urlImmaginiJson: JSON.stringify(immagini || [])
+                    }
+                }
+            );
+            metafieldsJson = JSON.stringify(metafieldsObj);
+            logger.info(`✅ Metafields generati per prodotto BTO: ${ean}`);
+        } catch (error) {
+            logger.error(`❌ Errore generazione metafields per BTO ${ean}:`, error);
+        }
+
+        // 6. Crea record OutputShopify per permettere il push
         const handle = nome ? nome.toLowerCase().replace(/[^a-z0-9]+/g, '-') : `prodotto-${ean}`;
 
         const output = await prisma.outputShopify.upsert({
@@ -118,6 +165,7 @@ export class ManualProductService {
                 variantInventoryQty: quantita || 0,
                 immaginiUrls: JSON.stringify(immagini || []),
                 specificheJson: JSON.stringify(specifiche || []),
+                metafieldsJson: metafieldsJson,
                 statoCaricamento: 'pending'
             },
             update: {
@@ -129,6 +177,7 @@ export class ManualProductService {
                 variantInventoryQty: quantita || 0,
                 immaginiUrls: JSON.stringify(immagini || []),
                 specificheJson: JSON.stringify(specifiche || []),
+                metafieldsJson: metafieldsJson,
                 statoCaricamento: 'pending'
             }
         });

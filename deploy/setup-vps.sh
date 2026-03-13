@@ -1,60 +1,112 @@
 #!/bin/bash
 # ============================================================
-# SCRIPT DI SETUP VPS PER PRICE MANAGER
-# Esegui questo script sul VPS Aruba dopo il primo accesso
+# SETUP AUTOMATICO VPS ARUBA — Price Manager
+# Ubuntu Server 22.04 LTS
+# Esegui come root: bash setup-vps.sh
 # ============================================================
 
-set -e
+set -e  # Esce immediatamente se un comando fallisce
 
-echo "═══════════════════════════════════════════════════════════"
-echo "   W[r]Digital Price Manager - Setup VPS"
-echo "═══════════════════════════════════════════════════════════"
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# Aggiorna il sistema
-echo "📦 Aggiornamento sistema..."
-apt update && apt upgrade -y
+log() { echo -e "${GREEN}[✓]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+error() { echo -e "${RED}[✗]${NC} $1"; exit 1; }
+step() { echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; }
 
-# Installa dipendenze base
-echo "📦 Installazione dipendenze..."
-apt install -y curl wget git build-essential nginx certbot python3-certbot-nginx
+# ── Variabili configurabili ──────────────────────────────────
+APP_DIR="/opt/price-manager"
+DB_NAME="ecommerce_price_manager"
+DB_USER="pricemanager"
+DB_PASS="PriceManager2024!Aruba"
+NODE_VERSION="20"
+# ────────────────────────────────────────────────────────────
 
-# Installa Node.js 20 LTS
-echo "📦 Installazione Node.js 20..."
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt install -y nodejs
+step "FASE 1 — Aggiornamento sistema"
+apt-get update -y
+apt-get upgrade -y
+apt-get install -y curl wget git build-essential unzip rsync ufw
+log "Sistema aggiornato"
 
-# Verifica installazione
-echo "✅ Node.js: $(node -v)"
-echo "✅ NPM: $(npm -v)"
+step "FASE 2 — Installazione Node.js ${NODE_VERSION}"
+if ! command -v node &> /dev/null; then
+    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
+    apt-get install -y nodejs
+fi
+log "Node.js $(node --version) installato"
+log "npm $(npm --version) installato"
 
-# Installa PM2 per gestione processi
-echo "📦 Installazione PM2..."
-npm install -g pm2
+step "FASE 3 — Installazione PostgreSQL 15"
+if ! command -v psql &> /dev/null; then
+    apt-get install -y postgresql postgresql-contrib
+fi
+systemctl enable postgresql
+systemctl start postgresql
+log "PostgreSQL avviato"
 
-# Crea directory app
-echo "📁 Creazione directory..."
-mkdir -p /var/www/price-manager
-cd /var/www/price-manager
+step "FASE 4 — Creazione Database e Utente"
+sudo -u postgres psql -c "DROP DATABASE IF EXISTS ${DB_NAME};" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME};"
+sudo -u postgres psql -c "DROP USER IF EXISTS ${DB_USER};" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH ENCRYPTED PASSWORD '${DB_PASS}';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};"
+sudo -u postgres psql -c "ALTER DATABASE ${DB_NAME} OWNER TO ${DB_USER};"
+# Permessi sullo schema public (necessario per Prisma su PG 15)
+sudo -u postgres psql -d ${DB_NAME} -c "GRANT ALL ON SCHEMA public TO ${DB_USER};"
+log "Database '${DB_NAME}' creato, utente '${DB_USER}' configurato"
 
-# Clona o copia il progetto (placeholder - lo faremo dopo)
-echo "📁 Directory pronta: /var/www/price-manager"
+step "FASE 5 — Installazione PM2 e Nginx"
+npm install -g pm2 2>/dev/null
+apt-get install -y nginx
+systemctl enable nginx
+systemctl start nginx
+log "PM2 $(pm2 --version) installato"
+log "Nginx installato e avviato"
 
-# Configura firewall
-echo "🔒 Configurazione firewall..."
+step "FASE 6 — Creazione cartella applicazione"
+mkdir -p ${APP_DIR}
+mkdir -p /opt/backups
+log "Cartella ${APP_DIR} creata"
+
+step "FASE 7 — Configurazione Firewall (UFW)"
 ufw allow OpenSSH
-ufw allow 'Nginx Full'
-ufw allow 3001/tcp  # Backend API
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 3000/tcp  # temporaneo per test
 ufw --force enable
+log "Firewall configurato (SSH, HTTP, HTTPS, porta 3000)"
 
-# Configura Nginx come reverse proxy
-echo "🌐 Configurazione Nginx..."
-cat > /etc/nginx/sites-available/price-manager << 'NGINX'
+step "FASE 8 — Configurazione backup automatico DB"
+mkdir -p /opt/backups
+(crontab -l 2>/dev/null; echo "0 2 * * * pg_dump -U ${DB_USER} ${DB_NAME} > /opt/backups/db_\$(date +\%Y\%m\%d).sql 2>/dev/null") | crontab -
+log "Backup automatico configurato (ogni giorno alle 02:00)"
+
+step "FASE 9 — Setup Nginx placeholder"
+cat > /etc/nginx/sites-available/price-manager << 'NGINX_CONF'
 server {
-    listen 80;
-    server_name _;
+    listen 80 default_server;
+    listen [::]:80 default_server;
 
+    # Frontend (build statica React/Vite)
+    root /opt/price-manager/frontend/dist;
+    index index.html;
+
+    # Aumenta timeout per operazioni lunghe (sync Shopify, import listini)
+    proxy_read_timeout 300s;
+    proxy_connect_timeout 75s;
+
+    # Frontend SPA routing
     location / {
-        proxy_pass http://localhost:3001;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Backend API proxy
+    location /api/ {
+        proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -65,21 +117,29 @@ server {
         proxy_cache_bypass $http_upgrade;
         proxy_read_timeout 300s;
         proxy_connect_timeout 75s;
+        client_max_body_size 50M;
     }
 }
-NGINX
+NGINX_CONF
 
-ln -sf /etc/nginx/sites-available/price-manager /etc/nginx/sites-enabled/
+# Rimuovi default, attiva price-manager
 rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/price-manager /etc/nginx/sites-enabled/price-manager
 nginx -t && systemctl reload nginx
+log "Nginx configurato"
 
 echo ""
-echo "═══════════════════════════════════════════════════════════"
-echo "   ✅ SETUP BASE COMPLETATO!"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-echo "   Prossimi passi:"
-echo "   1. Carica il codice backend in /var/www/price-manager"
-echo "   2. Configura le variabili d'ambiente (.env)"
-echo "   3. Avvia con: pm2 start npm --name 'price-manager' -- start"
-echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║   ✅ SETUP VPS COMPLETATO CON SUCCESSO!             ║${NC}"
+echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}║  Database:  ${DB_NAME}       ║${NC}"
+echo -e "${GREEN}║  DB User:   ${DB_USER}                    ║${NC}"
+echo -e "${GREEN}║  DB Pass:   ${DB_PASS}      ║${NC}"
+echo -e "${GREEN}║  App Dir:   ${APP_DIR}              ║${NC}"
+echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}║  PROSSIMO PASSO:                                     ║${NC}"
+echo -e "${GREEN}║  Dal tuo Mac, esegui:                                ║${NC}"
+echo -e "${GREEN}║  bash deploy/sync-to-vps.sh                          ║${NC}"
+echo -e "${GREEN}║                                                      ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"

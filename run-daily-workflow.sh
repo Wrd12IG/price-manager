@@ -47,7 +47,9 @@ consolidate_master() {
     
     async function main() {
         console.log('Avvio consolidamento...');
-        await MasterFileService.consolidate();
+        const user = await prisma.utente.findFirst();
+        if (!user) throw new Error('User not found');
+        await MasterFileService.consolidaMasterFile(user.id);
         console.log('Consolidamento completato');
         await prisma.\$disconnect();
     }
@@ -71,8 +73,10 @@ generate_shopify() {
     
     async function main() {
         console.log('Preparazione export Shopify...');
-        const result = await ShopifyExportService.prepareExport();
-        console.log('Export preparato:', result);
+        const user = await prisma.utente.findFirst();
+        if (!user) throw new Error('User not found');
+        const result = await ShopifyExportService.generateExport(user.id);
+        console.log('Export preparato:', result.length, 'prodotti');
         await prisma.\$disconnect();
     }
     main().catch(console.error);

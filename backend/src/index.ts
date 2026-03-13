@@ -38,6 +38,9 @@ dotenv.config();
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust Nginx proxy
+app.set('trust proxy', 1);
+
 // ============================================
 // MIDDLEWARE
 // ============================================
@@ -53,6 +56,7 @@ app.use(cors({
         const allowedOrigins = [
             'http://localhost:5173',
             'http://localhost:3000',
+            'http://31.14.139.249',
             'https://pricemanager.wrdigital.it',
             'https://api.pricemanager.wrdigital.it'
         ];
@@ -149,6 +153,14 @@ app.use((req, res, next) => {
 
 // Health check
 app.get('/health', (req: Request, res: Response) => {
+    res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
+app.get('/api/health', (req: Request, res: Response) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),

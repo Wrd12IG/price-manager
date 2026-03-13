@@ -517,6 +517,80 @@ export class ShopifyService {
     }
 
     /**
+     * 🗑️ Elimina un singolo prodotto da Shopify via API
+     */
+    static async deleteProduct(utenteId: number, shopifyProductId: string): Promise<boolean> {
+        const config = await this.getConfig(utenteId);
+        if (!config.configured) throw new Error('Shopify non configurato');
+
+        const token = await this.getAccessToken(utenteId);
+        if (!token) throw new Error('Token Shopify mancante');
+
+        const cleanShopUrl = config.shopUrl.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '').split('/')[0];
+        const url = `https://${cleanShopUrl}/admin/api/2024-01/products/${shopifyProductId}.json`;
+
+        try {
+            await axios.delete(url, {
+                headers: { 'X-Shopify-Access-Token': token },
+                timeout: 30000
+            });
+            logger.info(`🗑️ [Shopify] Prodotto ${shopifyProductId} eliminato con successo.`);
+            return true;
+        } catch (error: any) {
+            const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            logger.error(`❌ [Shopify] Errore eliminazione prodotto ${shopifyProductId}: ${errorMsg}`);
+            return false;
+        }
+    }
+
+    /**
+     * 💣 Elimina MASSIVAMENTE tutti i prodotti sincronizzati dell'utente su Shopify
+     */
+    static async deleteAllProducts(utenteId: number, onProgress?: (current: number, total: number) => void): Promise<{ deleted: number, errors: number }> {
+        logger.info(`💣 [Utente ${utenteId}] Avvio eliminazione massiva prodotti da Shopify...`);
+
+        const productsToDelete = await prisma.outputShopify.findMany({
+            where: {
+                utenteId,
+                shopifyProductId: { not: null }
+            },
+            select: { id: true, shopifyProductId: true, sku: true }
+        });
+
+        const total = productsToDelete.length;
+        if (total === 0) {
+            logger.info(`ℹ️ [Utente ${utenteId}] Nessun prodotto con ID Shopify trovato da eliminare.`);
+            return { deleted: 0, errors: 0 };
+        }
+
+        logger.info(`⚠️ Trovati ${total} prodotti da rimuovere fisicamente dallo store Shopify.`);
+
+        let deleted = 0;
+        let errors = 0;
+
+        for (const p of productsToDelete) {
+            if (!p.shopifyProductId) continue;
+
+            const success = await this.deleteProduct(utenteId, p.shopifyProductId);
+            if (success) {
+                deleted++;
+            } else {
+                errors++;
+            }
+
+            if (onProgress) {
+                onProgress(deleted + errors, total);
+            }
+
+            // Shopify Leaky Bucket: circa 2 req al secondo. Aspettiamo 500ms per sicurezza.
+            await new Promise(resolve => setTimeout(resolve, 550));
+        }
+
+        logger.info(`🏁 Eliminazione massiva completata: ${deleted} eliminati, ${errors} errori.`);
+        return { deleted, errors };
+    }
+
+    /**
      * 🔁 Risincronizza un singolo prodotto (per retry manuale dall'UI).
      * Riusa la stessa logica di uploadlo dei prodotti, ma opera su un solo record.
      */

@@ -61,23 +61,25 @@ const ManualProduct: React.FC = () => {
 
     const handleFetchIcecat = async () => {
         if (!ean.trim()) {
-            toast.error('Inserisci un EAN');
+            toast.error('Inserisci un identificativo (EAN o Codice)');
             return;
         }
 
         setLoading(true);
         try {
-            const response = await api.get(`/icecat/fetch/${ean}`);
+            const response = await api.get(`/icecat/fetch/${ean}`, {
+                params: { brand: productData.marca }
+            });
             const data = response.data.data;
 
             setProductData({
                 ...productData,
+                marca: data.brand || productData.marca || '', // Usa brand di Icecat se disponibile, altrimenti tieni quello attuale
                 nome: data.descrizioneBrave || '',
                 descrizione: data.descrizioneLunga || '',
                 specifiche: JSON.parse(data.specificheTecnicheJson || '[]'),
                 immagini: JSON.parse(data.urlImmaginiJson || '[]'),
-                // Note: Icecat doesn't give price or brand easily in this response sometimes, 
-                // but let's assume we can try to extract brand from specs or it might be in another field
+                // Note: Icecat doesn't give price easily in this response sometimes, 
             });
             toast.success('Dati recuperati da Icecat');
         } catch (error: any) {
@@ -141,12 +143,21 @@ const ManualProduct: React.FC = () => {
                         <Typography variant="h6" sx={{ mb: 2 }}>Recupera Dati</Typography>
                         <TextField
                             fullWidth
-                            label="Inserisci EAN"
+                            label="EAN o Codice Articolo"
                             value={ean}
                             onChange={(e) => setEan(e.target.value)}
                             variant="outlined"
                             sx={{ mb: 2 }}
                             onKeyPress={(e) => e.key === 'Enter' && handleFetchIcecat()}
+                        />
+                        <TextField
+                            fullWidth
+                            label="Marca (Necessaria per Codice Articolo)"
+                            value={productData.marca}
+                            onChange={(e) => setProductData({ ...productData, marca: e.target.value })}
+                            variant="outlined"
+                            size="small"
+                            sx={{ mb: 2 }}
                         />
                         <Button
                             fullWidth
@@ -159,7 +170,7 @@ const ManualProduct: React.FC = () => {
                             Cerca su Icecat
                         </Button>
                         <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
-                            Inserisci l'EAN per pre-compilare la scheda con le informazioni ufficiali di Icecat.
+                            Inserisci l'EAN o il Codice Articolo (MPN) del produttore. Se usi il Codice Articolo, specifica anche la Marca.
                         </Alert>
                     </Paper>
 

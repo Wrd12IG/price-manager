@@ -384,6 +384,50 @@ export class MasterFileService {
         }
     }
 
+    /**
+     * 💣 RESET COMPLETO DEL CATALOGO UTENTE
+     * Pulisce MasterFile, OutputShopify e opzionalmente elimina i prodotti da Shopify.
+     */
+    static async resetUserCatalog(utenteId: number, deleteFromShopify: boolean = false): Promise<{
+        masterDeleted: number;
+        outputDeleted: number;
+        shopifyDeleted: number;
+        shopifyErrors: number;
+    }> {
+        logger.warn(`🚨 [Utente ${utenteId}] AVVIO RESET COMPLETO DEL CATALOGO`);
+        let shopifyDeleted = 0;
+        let shopifyErrors = 0;
+
+        // 1. Eliminazione fisica da Shopify (se richiesta)
+        if (deleteFromShopify) {
+            const { ShopifyService } = await import('./ShopifyService');
+            const result = await ShopifyService.deleteAllProducts(utenteId);
+            shopifyDeleted = result.deleted;
+            shopifyErrors = result.errors;
+        }
+
+        // 2. Eliminazione record OutputShopify
+        const outputResult = await prisma.outputShopify.deleteMany({
+            where: { utenteId }
+        });
+        logger.info(`🗑️ Eliminati ${outputResult.count} record da OutputShopify.`);
+
+        // 3. Eliminazione record MasterFile 
+        // (Cascata: i DatiIcecat potrebbero rimanere orfani se implementati come relazione esterna, 
+        // ma tipicamente sono legati al MasterFileId se non condivisi)
+        const masterResult = await prisma.masterFile.deleteMany({
+            where: { utenteId }
+        });
+        logger.info(`🗑️ Eliminati ${masterResult.count} record da MasterFile.`);
+
+        return {
+            masterDeleted: masterResult.count,
+            outputDeleted: outputResult.count,
+            shopifyDeleted,
+            shopifyErrors
+        };
+    }
+
     static async getStats(utenteId: number | null): Promise<any> {
         const where = utenteId ? { utenteId } : {};
         const prodCount = await prisma.masterFile.count({ where });

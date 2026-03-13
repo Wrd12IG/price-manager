@@ -4,9 +4,11 @@
 # Esegui dal Mac: ./deploy/deploy-to-vps.sh
 # ============================================================
 
-VPS_IP="5.249.149.97"
+VPS_IP="31.14.139.249"
 VPS_USER="root"
-APP_DIR="/var/www/price-manager"
+APP_DIR="/opt/price-manager/backend"
+# NOTA: Consigliato l'uso di deploy/sync-to-vps.sh per deploy completi.
+
 
 echo "═══════════════════════════════════════════════════════════"
 echo "   Deploy Price Manager Backend su VPS"
@@ -54,7 +56,7 @@ scp /tmp/backend.tar.gz ${VPS_USER}@${VPS_IP}:/tmp/
 echo "🚀 Deploy in corso..."
 ssh ${VPS_USER}@${VPS_IP} << 'REMOTE'
 set -e
-cd /var/www/price-manager
+cd /opt/price-manager/backend
 
 # Mostra info per debug
 echo "📂 Directory attuale: $(pwd)"
@@ -81,7 +83,7 @@ npx prisma db push --accept-data-loss
 
 # Riavvia applicazione
 echo "🔄 Riavvio PM2..."
-pm2 restart price-manager --update-env || pm2 start npm --name "price-manager" -- start
+pm2 restart price-manager-backend --update-env || pm2 start dist/index.js --name "price-manager-backend"
 
 echo "✅ Deploy completato sul server!"
 REMOTE
@@ -89,5 +91,5 @@ REMOTE
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 echo "   ✅ DEPLOY COMPLETATO!"
-echo "   Backend disponibile su: http://${VPS_IP}:3001"
+echo "   App disponibile su: http://${VPS_IP}"
 echo "═══════════════════════════════════════════════════════════"

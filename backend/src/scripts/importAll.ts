@@ -13,14 +13,27 @@ async function main() {
     console.log('═══════════════════════════════════════════════════════════');
 
     try {
-        // Importa tutti i listini attivi
-        console.log('\n📥 Avvio importazione massiva...');
-        const result = await ImportService.importAllListini();
+        // Importa tutti i listini attivi del primo utente trovato (tipicamente l'admin)
+        const user = await prisma.utente.findFirst();
+        if (!user) {
+            throw new Error('Nessun utente trovato nel database');
+        }
+
+        console.log(`\n📥 Avvio importazione massiva per utente: ${user.email} (ID: ${user.id})...`);
+        const result = await ImportService.importAllListini(user.id);
 
         console.log('\n✅ Importazione completata!');
-        console.log(`   Totale processati: ${result.totale}`);
-        console.log(`   Successi: ${result.successi}`);
-        console.log(`   Errori: ${result.errori}`);
+        console.log(`\n✅ Importazione completata!`);
+        console.log(`   Fornitori processati: ${result.results.length}`);
+        console.log(`   Successi: ${result.results.filter(r => r.success).length}`);
+        console.log(`   Errori: ${result.totalErrors}`);
+
+        if (result.totalErrors > 0) {
+            console.log('\n⚠️ Dettaglio Errori:');
+            result.results.filter(r => !r.success).forEach(r => {
+                console.log(`   - ${r.fornitore}: ${r.error}`);
+            });
+        }
 
     } catch (error: any) {
         console.error('❌ Errore durante importazione:', error.message);

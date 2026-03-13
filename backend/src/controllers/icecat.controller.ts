@@ -9,9 +9,11 @@ export const fetchByEan = asyncHandler(async (req: AuthRequest, res: Response) =
   const utenteId = req.utenteId;
   if (!utenteId) throw new AppError('Non autorizzato', 401);
   const { ean } = req.params;
-  if (!ean) throw new AppError('EAN obbligatorio', 400);
+  const { brand } = req.query; // Recupera la marca opzionale dalla query string
 
-  const data = await IcecatService.fetchByEan(utenteId, ean);
+  if (!ean) throw new AppError('EAN o Codice Articolo obbligatorio', 400);
+
+  const data = await IcecatService.fetchByEan(utenteId, ean, brand as string);
   if (!data) return res.status(404).json({ success: false, message: 'Prodotto non trovato su Icecat' });
 
   res.json({ success: true, data });

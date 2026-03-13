@@ -62,11 +62,28 @@ export class IcecatService {
         return { username: u || '', configured: !!(u && p) };
     }
 
-    public static async fetchByEan(utenteId: number, ean: string): Promise<any> {
+    public static async fetchByEan(utenteId: number, code: string, brand?: string): Promise<any> {
         const credentials = await this.getCredentials(utenteId);
-        const data = await this.fetchProductData(ean, credentials);
-        if (!data) return null;
-        return this.extractProductData(data);
+
+        // 1. Prova come EAN se l'identificativo è puramente numerico e di lunghezza sensata (8-14)
+        if (/^\d{8,14}$/.test(code.trim())) {
+            const data = await this.fetchProductData(code, credentials);
+            if (data) return this.extractProductData(data);
+        }
+
+        // 2. Se non trovato o non era un EAN, e abbiamo una Marca, prova come MPN
+        if (brand) {
+            const data = await this.fetchProductData('', credentials, code, brand);
+            if (data) return this.extractProductData(data);
+        }
+
+        // 3. Fallback: prova comunque l'identificativo in input come EAN per sicurezza se non è già stato provato
+        if (!/^\d{8,14}$/.test(code.trim())) {
+            const data = await this.fetchProductData(code, credentials);
+            if (data) return this.extractProductData(data);
+        }
+
+        return null;
     }
 
     public static async fetchProductData(ean: string, credentials: { username: string; password: string }, mpn?: string, brand?: string): Promise<any> {
@@ -122,7 +139,11 @@ export class IcecatService {
             pics.forEach((p: any) => { if (p.$?.Pic) images.push(p.$?.Pic); });
         }
 
+        // Estrazione marca
+        const brand = product.Supplier?.$?.Name || attrs.Brand || '';
+
         return {
+            brand: brand,
             descrizioneBrave: short,
             descrizioneLunga: long,
             specificheTecnicheJson: JSON.stringify(features),
@@ -169,10 +190,12 @@ export class IcecatService {
             }
 
             const extracted = this.extractProductData(data);
+            const { brand, ...dbData } = extracted; // brand non è presente nel modello DatiIcecat
+
             await prisma.datiIcecat.upsert({
                 where: { masterFileId: product.id },
-                create: { masterFileId: product.id, eanGtin: product.eanGtin, ...extracted, linguaOriginale: 'it' },
-                update: { ...extracted, updatedAt: new Date() }
+                create: { masterFileId: product.id, eanGtin: product.eanGtin, ...dbData, linguaOriginale: 'it' },
+                update: { ...dbData, updatedAt: new Date() }
             });
             return true;
         } catch { return false; }

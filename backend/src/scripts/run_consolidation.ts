@@ -10,21 +10,29 @@ async function runConsolidation() {
 
         // 1. Run consolidation
         console.log('--- Step 1: Consolidating MasterFile ---');
-        const result = await MasterFileService.consolidaMasterFile();
+        const user = await prisma.utente.findFirst();
+        if (!user) throw new Error('First user not found');
+
+        const result = await MasterFileService.consolidaMasterFile(user.id);
 
         console.log(`\n✅ Consolidation completed!`);
-        console.log(`  Processed: ${result.processed}`);
-        console.log(`  Created: ${result.created}`);
-        console.log(`  Updated: ${result.updated}`);
+        console.log(`  Total Raw: ${result.totalRaw}`);
+        console.log(`  Filtered: ${result.filtered}`);
+        console.log(`  Consolidated: ${result.consolidated}`);
 
         // 2. Check Asus products in MasterFile
         console.log('\n--- Step 2: Checking ASUS products in MasterFile ---');
         const asusProducts = await prisma.masterFile.findMany({
             where: {
-                OR: [
-                    { marca: 'ASUS' },
-                    { marca: 'ASUSTEK' }
-                ]
+                marchio: {
+                    nome: {
+                        in: ['ASUS', 'ASUSTEK']
+                    }
+                }
+            },
+            include: {
+                marchio: true,
+                categoria: true
             }
         });
 
@@ -33,7 +41,7 @@ async function runConsolidation() {
         // Group by category
         const categoryMap = new Map<string, number>();
         for (const p of asusProducts) {
-            const cat = p.categoriaEcommerce || 'Unknown';
+            const cat = p.categoria?.nome || 'Unknown';
             categoryMap.set(cat, (categoryMap.get(cat) || 0) + 1);
         }
 
@@ -46,7 +54,7 @@ async function runConsolidation() {
         // Show some notebook examples
         const notebooks = asusProducts.filter(p =>
             p.nomeProdotto?.includes('NB ') ||
-            p.categoriaEcommerce?.toLowerCase().includes('notebook')
+            p.categoria?.nome?.toLowerCase().includes('notebook')
         );
 
         console.log(`\n--- ASUS Notebooks: ${notebooks.length} ---`);
@@ -61,16 +69,17 @@ async function runConsolidation() {
         const withoutPrice = asusProducts.filter(p => p.prezzoVenditaCalcolato === 0);
         if (withoutPrice.length > 0) {
             console.log(`\n--- Step 3: Applying markup to ${withoutPrice.length} products ---`);
-            const markupResult = await MarkupService.applicaRegolePrezzi();
+            const markupResult = await MarkupService.applicaRegolePrezzi(user.id);
             console.log(`✅ Markup applied: ${markupResult.updated} products updated`);
 
             // Re-check
             const updated = await prisma.masterFile.findMany({
                 where: {
-                    OR: [
-                        { marca: 'ASUS' },
-                        { marca: 'ASUSTEK' }
-                    ],
+                    marchio: {
+                        nome: {
+                            in: ['ASUS', 'ASUSTEK']
+                        }
+                    },
                     prezzoVenditaCalcolato: { gt: 0 }
                 }
             });

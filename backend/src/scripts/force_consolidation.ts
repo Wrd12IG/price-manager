@@ -9,11 +9,14 @@ async function forceConsolidation() {
         const activeFilters = await prisma.productFilterRule.count({ where: { attiva: true } });
         console.log(`🔍 Filtri attivi nel DB: ${activeFilters}`);
 
-        const result = await MasterFileService.consolidaMasterFile();
+        const user = await prisma.utente.findFirst();
+        if (!user) throw new Error('User not found');
+
+        const result = await MasterFileService.consolidaMasterFile(user.id);
         console.log('\n✅ Consolidamento completato!');
-        console.log(`📊 Prodotti processati: ${result.processed}`);
-        console.log(`🆕 Prodotti creati: ${result.created}`);
-        console.log(`🔄 Prodotti aggiornati: ${result.updated}`);
+        console.log(`📊 Totale Raw: ${result.totalRaw}`);
+        console.log(`🔍 Filtrati: ${result.filtered}`);
+        console.log(`🔄 Consolidati: ${result.consolidated}`);
 
         // Verifica finale conteggio
         const count = await prisma.masterFile.count();

@@ -52,10 +52,8 @@ import {
     AppShortcut as AppIcon,
     LockReset as LockResetIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import api from '../utils/api';
 import { toast } from 'react-toastify';
-
-const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:3000/api';
 
 const AdminPanel: React.FC = () => {
     const [stats, setStats] = useState<any>(null);
@@ -90,21 +88,15 @@ const AdminPanel: React.FC = () => {
     });
     const [creating, setCreating] = useState(false);
 
-    const getHeaders = () => {
-        const token = localStorage.getItem('token');
-        return { Authorization: `Bearer ${token}` };
-    };
-
     const fetchData = async () => {
         setLoading(true);
         try {
-            const headers = getHeaders();
             const [statsRes, usersRes, logsRes, healthRes, profileRes] = await Promise.all([
-                axios.get(`${API_URL}/admin/stats`, { headers }),
-                axios.get(`${API_URL}/admin/users`, { headers }),
-                axios.get(`${API_URL}/admin/logs`, { headers }),
-                axios.get(`${API_URL}/admin/health`, { headers }),
-                axios.get(`${API_URL}/settings/profile`, { headers })
+                api.get(`/admin/stats`),
+                api.get(`/admin/users`),
+                api.get(`/admin/logs`),
+                api.get(`/admin/health`),
+                api.get(`/settings/profile`)
             ]);
 
             setStats(statsRes.data.data);
@@ -132,7 +124,7 @@ const AdminPanel: React.FC = () => {
 
     const toggleUserStatus = async (id: number, currentStatus: boolean) => {
         try {
-            await axios.put(`${API_URL}/admin/users/${id}`, { attivo: !currentStatus }, { headers: getHeaders() });
+            await api.put(`/admin/users/${id}`, { attivo: !currentStatus });
             toast.success('Stato utente aggiornato');
             setUsers(prev => prev.map(u => u.id === id ? { ...u, attivo: !currentStatus } : u));
         } catch (err) {
@@ -143,7 +135,7 @@ const AdminPanel: React.FC = () => {
     const handleSaveGlobalSettings = async () => {
         setSavingSettings(true);
         try {
-            await axios.post(`${API_URL}/admin/settings`, globalSettings, { headers: getHeaders() });
+            await api.post(`/admin/settings`, globalSettings);
             toast.success('Impostazioni globali salvate con successo');
         } catch (err) {
             toast.error('Errore nel salvataggio delle impostazioni');
@@ -165,7 +157,7 @@ const AdminPanel: React.FC = () => {
     const handleDeleteUser = async () => {
         if (!userToDelete) return;
         try {
-            await axios.delete(`${API_URL}/admin/users/${userToDelete}`, { headers: getHeaders() });
+            await api.delete(`/admin/users/${userToDelete}`);
             toast.success('Utente eliminato definitivamente');
             setUsers(prev => prev.filter(u => u.id !== userToDelete));
             handleCloseDeleteDialog();
@@ -196,9 +188,8 @@ const AdminPanel: React.FC = () => {
 
         setResettingPassword(true);
         try {
-            await axios.post(`${API_URL}/auth/admin/reset-password`,
-                { userId: userToReset, newPassword },
-                { headers: getHeaders() }
+            await api.post(`/auth/admin/reset-password`,
+                { userId: userToReset, newPassword }
             );
             toast.success('Password aggiornata con successo');
             handleCloseResetDialog();
@@ -219,7 +210,7 @@ const AdminPanel: React.FC = () => {
 
         setCreating(true);
         try {
-            const res = await axios.post(`${API_URL}/admin/users`, newUser, { headers: getHeaders() });
+            const res = await api.post(`/admin/users`, newUser);
             toast.success(`Utente ${newUser.email} creato con successo!`);
             setUsers(prev => [...prev, res.data.data]);
             setNewUser({ email: '', password: '', nome: '', cognome: '', ruolo: 'merchant' });
