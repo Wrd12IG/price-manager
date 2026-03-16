@@ -9,6 +9,9 @@ router.use(authMiddleware);
 
 router.get('/stats/:type', normalizationController.getStats);
 router.get('/duplicates/:type', normalizationController.getDuplicates);
+router.get('/search/:type', normalizationController.search);
 router.post('/merge/:type', normalizationController.mergeItems);
+router.delete('/clean-orphans/:type', normalizationController.cleanOrphans);
+router.post('/auto-normalize', normalizationController.autoNormalize);
 
 export default router;

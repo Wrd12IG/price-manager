@@ -68,3 +68,21 @@ export const getMasterFileFilters = asyncHandler(async (req: AuthRequest, res: R
         data: filters
     });
 });
+/**
+ * POST /api/master-file/reset
+ * Resetta il catalogo dell'utente (MasterFile e OutputShopify)
+ */
+export const resetCatalog = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    const { deleteFromShopify } = req.body;
+
+    const result = await MasterFileService.resetUserCatalog(utenteId, !!deleteFromShopify);
+
+    res.json({
+        success: true,
+        message: 'Reset catalogo completato',
+        data: result
+    });
+});

@@ -12,6 +12,25 @@ export class MasterFileService {
 
     private static activeConsolidations: Set<number> = new Set();
 
+    /**
+     * P2a: Normalizza un nome categoria/marchio a Title Case
+     * Es: "MATERIALI DI CONSUMO" → "Materiali Di Consumo"
+     *     "schede madri" → "Schede Madri"
+     */
+    private static toTitleCase(str: string): string {
+        return str.trim()
+            .toLowerCase()
+            .replace(/(?:^|\s|[-/])\S/g, (match) => match.toUpperCase());
+    }
+
+    /**
+     * P2a: Genera una chiave normalizzata per confronto semantico
+     * Rimuove tutto tranne lettere e numeri, converte in lowercase
+     */
+    private static semanticKey(str: string): string {
+        return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
     private static isValidEAN(ean: string | null): boolean {
         if (!ean) return false;
         const cleaned = String(ean).trim();
@@ -264,17 +283,56 @@ export class MasterFileService {
         catAliases.forEach(a => categorieMap.set(a.alias.toLowerCase().trim(), a.targetId));
 
         // 4. PRE-ELABORA MARCHI E CATEGORIE MANCANTI
+        // P2a: Uso di semanticKey per deduplicazione e toTitleCase per nomi puliti
         const missingBrands = new Set<string>();
         const missingCats = new Set<string>();
+
+        // P2a: Indice semantico per evitare duplicati come "MONITOR PC" vs "Monitor Pc"
+        const semanticBrandIndex = new Map<string, number>();
+        const semanticCatIndex = new Map<string, number>();
+        existingMarchi.forEach(m => semanticBrandIndex.set(this.semanticKey(m.nome), m.id));
+        existingCat.forEach(c => semanticCatIndex.set(this.semanticKey(c.nome), c.id));
 
         for (const product of products) {
             if (product.marca) {
                 const brandKey = product.marca.toLowerCase().trim();
-                if (!marchiMap.has(brandKey)) missingBrands.add(product.marca.trim());
+                if (!marchiMap.has(brandKey)) {
+                    // P2a: Controlla anche per duplicati semantici
+                    const semKey = this.semanticKey(product.marca);
+                    const existingSemId = semanticBrandIndex.get(semKey);
+                    if (existingSemId) {
+                        // Duplicato semantico trovato — riusa l'esistente
+                        marchiMap.set(brandKey, existingSemId);
+                    } else {
+                        // P2: Validazione — non creare marchi con nome puramente numerico o < 3 caratteri
+                        const cleanBrandName = product.marca.trim();
+                        if (cleanBrandName.length >= 3 && !/^\d+$/.test(cleanBrandName)) {
+                            missingBrands.add(cleanBrandName);
+                        }
+                    }
+                }
             }
             if (product.categoriaFornitore) {
                 const catKey = product.categoriaFornitore.toLowerCase().trim();
-                if (!categorieMap.has(catKey)) missingCats.add(product.categoriaFornitore.trim());
+                if (!categorieMap.has(catKey)) {
+                    // P2a: Controlla per duplicati semantici
+                    const semKey = this.semanticKey(product.categoriaFornitore);
+                    const existingSemId = semanticCatIndex.get(semKey);
+                    if (existingSemId) {
+                        // Duplicato semantico trovato — riusa l'esistente
+                        categorieMap.set(catKey, existingSemId);
+                    } else {
+                        // P2: Validazione — non creare categorie con nome puramente numerico o < 3 caratteri
+                        const cleanCatName = product.categoriaFornitore.trim();
+                        if (cleanCatName.length >= 3 && !/^\d+$/.test(cleanCatName)) {
+                            // P2a: Normalizza a Title Case
+                            const normalizedCatName = this.toTitleCase(cleanCatName);
+                            missingCats.add(normalizedCatName);
+                            // Aggiorna indice semantico per evitare doppie creazioni nel batch
+                            semanticCatIndex.set(semKey, -1); // placeholder, verrà aggiornato dopo la creazione
+                        }
+                    }
+                }
             }
         }
 
@@ -289,7 +347,10 @@ export class MasterFileService {
                 const newMarchi = await prisma.marchio.findMany({
                     where: { nome: { in: Array.from(missingBrands) } }
                 });
-                newMarchi.forEach(m => marchiMap.set(m.nome.toLowerCase().trim(), m.id));
+                newMarchi.forEach(m => {
+                    marchiMap.set(m.nome.toLowerCase().trim(), m.id);
+                    semanticBrandIndex.set(this.semanticKey(m.nome), m.id);
+                });
             } catch (e) {
                 logger.error('Errore batch creazione marchi:', e);
             }
@@ -306,9 +367,29 @@ export class MasterFileService {
                 const newCats = await prisma.categoria.findMany({
                     where: { nome: { in: Array.from(missingCats) } }
                 });
-                newCats.forEach(c => categorieMap.set(c.nome.toLowerCase().trim(), c.id));
+                newCats.forEach(c => {
+                    categorieMap.set(c.nome.toLowerCase().trim(), c.id);
+                    semanticCatIndex.set(this.semanticKey(c.nome), c.id);
+                });
+                logger.info(`📂 Create ${newCats.length} categorie normalizzate (Title Case): ${Array.from(missingCats).slice(0, 5).join(', ')}...`);
             } catch (e) {
                 logger.error('Errore batch creazione categorie:', e);
+            }
+        }
+
+        // P2a: Seconda passata — assicuriamoci che tutte le categorie fornitore non normalizzate
+        // vengano mappate ai record Title Case appena creati
+        for (const product of products) {
+            if (product.categoriaFornitore) {
+                const catKey = product.categoriaFornitore.toLowerCase().trim();
+                if (!categorieMap.has(catKey)) {
+                    // Il nome originale non è in mappa, proviamo con il Title Case corrispondente
+                    const normalizedName = this.toTitleCase(product.categoriaFornitore.trim());
+                    const normalizedKey = normalizedName.toLowerCase().trim();
+                    if (categorieMap.has(normalizedKey)) {
+                        categorieMap.set(catKey, categorieMap.get(normalizedKey)!);
+                    }
+                }
             }
         }
 
@@ -322,9 +403,12 @@ export class MasterFileService {
                 let categoriaId: number | null = null;
                 if (product.categoriaFornitore) categoriaId = categorieMap.get(product.categoriaFornitore.toLowerCase().trim()) || null;
 
+                // Assicuriamoci che l'EAN sia valido o null per evitare violazioni di vincoli unici
+                const finalEan = this.isValidEAN(product.eanGtin) ? String(product.eanGtin).trim() : null;
+
                 dataToInsert.push({
                     utenteId,
-                    eanGtin: product.eanGtin,
+                    eanGtin: finalEan,
                     skuSelezionato: product.skuFornitore,
                     partNumber: product.partNumber,
                     fornitoreSelezionatoId: product.fornitoreId,
@@ -347,7 +431,10 @@ export class MasterFileService {
         const batchSize = 500;
         for (let i = 0; i < dataToInsert.length; i += batchSize) {
             transactions.push(
-                prisma.masterFile.createMany({ data: dataToInsert.slice(i, i + batchSize) })
+                prisma.masterFile.createMany({ 
+                    data: dataToInsert.slice(i, i + batchSize),
+                    skipDuplicates: true 
+                })
             );
         }
 
@@ -367,6 +454,7 @@ export class MasterFileService {
                 return {
                     masterFileId: mf.id,
                     eanGtin: mf.eanGtin,
+                    categoriaIcecat: b.categoriaIcecat,  // P1: Preserva la categoria Icecat nel backup
                     descrizioneBrave: b.descrizioneBrave,
                     descrizioneLunga: b.descrizioneLunga,
                     specificheTecnicheJson: b.specificheTecnicheJson,
@@ -381,8 +469,135 @@ export class MasterFileService {
             for (let i = 0; i < toRestore.length; i += batchSize) {
                 await prisma.datiIcecat.createMany({ data: toRestore.slice(i, i + batchSize), skipDuplicates: true });
             }
+            logger.info(`✅ [Utente ${utenteId}] Ripristinati ${toRestore.length} record Icecat (con categoriaIcecat preservata)`);
         }
+
+        // 7. NORMALIZZAZIONE CATEGORIE VIA ICECAT (Scenario 3 — Ibrido)
+        // Se un prodotto ha dati Icecat con categoriaIcecat, usiamo quella come categoria prioritaria
+        await this.normalizeCategoriesFromIcecat(utenteId);
     }
+
+    /**
+     * 🏷️ Normalizza le categorie dei prodotti nel MasterFile usando le categorie Icecat.
+     * Logica ibrida: se il prodotto ha una categoriaIcecat, viene usata come prioritaria.
+     * Se non ha dati Icecat, mantiene la categoria del fornitore.
+     */
+    static async normalizeCategoriesFromIcecat(utenteId: number): Promise<{ normalized: number; total: number }> {
+        const productsWithIcecatCategory = await prisma.datiIcecat.findMany({
+            where: {
+                masterFile: { utenteId },
+                categoriaIcecat: { not: null }
+            },
+            select: {
+                masterFileId: true,
+                categoriaIcecat: true
+            }
+        });
+
+        if (productsWithIcecatCategory.length === 0) {
+            logger.info(`📂 [Utente ${utenteId}] Nessuna categoria Icecat disponibile per normalizzazione`);
+            return { normalized: 0, total: 0 };
+        }
+
+        logger.info(`📂 [Utente ${utenteId}] Normalizzazione categorie: ${productsWithIcecatCategory.length} prodotti con categoria Icecat`);
+
+        // Cache categorie esistenti
+        const existingCats = await prisma.categoria.findMany();
+        const categorieMap = new Map<string, number>();
+        existingCats.forEach(c => categorieMap.set(c.nome.toLowerCase().trim(), c.id));
+
+        // Trova categorie Icecat mancanti e creale
+        const missingCats = new Set<string>();
+        for (const p of productsWithIcecatCategory) {
+            const catKey = p.categoriaIcecat!.toLowerCase().trim();
+            if (!categorieMap.has(catKey)) {
+                missingCats.add(p.categoriaIcecat!.trim());
+            }
+        }
+
+        if (missingCats.size > 0) {
+            const catsToCreate = Array.from(missingCats).map(name => ({
+                nome: name,
+                normalizzato: name.toUpperCase(),
+                attivo: true
+            }));
+            try {
+                await prisma.categoria.createMany({ data: catsToCreate, skipDuplicates: true });
+                const newCats = await prisma.categoria.findMany({
+                    where: { nome: { in: Array.from(missingCats) } }
+                });
+                newCats.forEach(c => categorieMap.set(c.nome.toLowerCase().trim(), c.id));
+                logger.info(`📂 Create ${newCats.length} nuove categorie da Icecat: ${Array.from(missingCats).join(', ')}`);
+            } catch (e) {
+                logger.error('Errore creazione categorie Icecat:', e);
+            }
+        }
+
+        // Aggiorna categoriaId nel MasterFile e crea alias persistenti
+        let normalized = 0;
+
+        // P4a: Recupero categorie fornitore attuali per creare alias automatici
+        const masterFilesWithSupplierCat = await prisma.masterFile.findMany({
+            where: {
+                utenteId,
+                id: { in: productsWithIcecatCategory.map(p => p.masterFileId) },
+                categoriaId: { not: null }
+            },
+            select: { id: true, categoriaId: true, categoria: { select: { nome: true } } }
+        });
+        const mfCatMap = new Map<number, { catId: number; catName: string }>();
+        masterFilesWithSupplierCat.forEach(mf => {
+            if (mf.categoriaId && mf.categoria?.nome) {
+                mfCatMap.set(mf.id, { catId: mf.categoriaId, catName: mf.categoria.nome });
+            }
+        });
+
+        const aliasesToCreate: { alias: string; targetId: number; utenteId: number | null }[] = [];
+        const aliasesCreated = new Set<string>();
+
+        for (const p of productsWithIcecatCategory) {
+            const catKey = p.categoriaIcecat!.toLowerCase().trim();
+            const newCatId = categorieMap.get(catKey);
+            if (newCatId) {
+                await prisma.masterFile.update({
+                    where: { id: p.masterFileId },
+                    data: { categoriaId: newCatId }
+                });
+                normalized++;
+
+                // P4a: Se la categoria fornitore era diversa dalla Icecat, crea un alias persistente
+                const supplierCat = mfCatMap.get(p.masterFileId);
+                if (supplierCat && supplierCat.catId !== newCatId && !aliasesCreated.has(supplierCat.catName.toLowerCase().trim())) {
+                    aliasesToCreate.push({
+                        alias: supplierCat.catName,
+                        targetId: newCatId,
+                        utenteId: null  // Globale
+                    });
+                    aliasesCreated.add(supplierCat.catName.toLowerCase().trim());
+                }
+            }
+        }
+
+        // P4a: Salva alias in batch
+        if (aliasesToCreate.length > 0) {
+            for (const al of aliasesToCreate) {
+                try {
+                    await prisma.categoryAlias.upsert({
+                        where: { alias: al.alias },
+                        create: al,
+                        update: { targetId: al.targetId }
+                    });
+                } catch (e) {
+                    // Ignora duplicati o conflitti
+                }
+            }
+            logger.info(`🔗 [Utente ${utenteId}] Creati ${aliasesToCreate.length} alias categorie automatici (fornitore → Icecat)`);
+        }
+
+        logger.info(`✅ [Utente ${utenteId}] Normalizzazione completata: ${normalized}/${productsWithIcecatCategory.length} categorie aggiornate da Icecat`);
+        return { normalized, total: productsWithIcecatCategory.length };
+    }
+
 
     /**
      * 💣 RESET COMPLETO DEL CATALOGO UTENTE

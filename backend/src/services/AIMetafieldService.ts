@@ -71,9 +71,9 @@ EAN|[codice 13 cifre, lascia vuoto se non disponibile]
 Descrizione Breve|[max 150 caratteri, accattivante]
 Descrizione Lunga|[300-500 parole, SEO-friendly, strutturata in 4 paragrafi: Intro, Specifiche, Utilizzi, Conclusione]
 Tabella Specifiche|[HTML table completo con tutte le specifiche, stile pulito]
-Titolo SEO Ottimizzato|[Titolo del prodotto riscritto, accattivante e keyword-rich, max 80 caratteri]
-SEO Title Tag|[Tag title ottimizzato per Google, max 60 caratteri]
-SEO Meta Description|[Meta description per Google, focus commerciale, max 160 caratteri]
+Titolo SEO Ottimizzato|[Titolo PROFESSIONALE e SEO: Marca Modello - Spec1 - Spec2. MASSIMO ASSOLUTO 75 caratteri. NO EAN. Lingua Italiana. Sii conciso e pulito.]
+SEO Title Tag|[Tag title per Google: Marca Modello Specifiche | NomeSito (max 60 char)]
+SEO Meta Description|[Meta description accattivante con call to action, focus su benefici e disponibilità (max 160 char)]
 
 REGOLE:
 - Formato OUTPUT: Campo|Valore (separatore pipe |)
@@ -81,6 +81,7 @@ REGOLE:
 - Se un dato non è disponibile, lascia il valore vuoto dopo il pipe
 - Descrizione Lunga: Usa tag HTML <p>, <h3>, <ul>, <li>
 - Tabella Specifiche: HTML con <table style="width:100%; border-collapse:collapse;">, celle con border:1px solid #ddd; padding:8px;
+- Titolo SEO: Deve essere pronto per l'e-commerce, max 75 caratteri.
 
 OUTPUT (solo i dati, senza preamble):`;
 

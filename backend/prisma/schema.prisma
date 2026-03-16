@@ -279,6 +279,7 @@ model DatiIcecat {
   id                     Int        @id @default(autoincrement())
   masterFileId           Int        @unique
   eanGtin                String?
+  categoriaIcecat        String?
   descrizioneBrave       String?
   descrizioneLunga       String?
   specificheTecnicheJson String?
@@ -294,6 +295,7 @@ model DatiIcecat {
   @@index([eanGtin])
   @@map("dati_icecat")
 }
+
 
 model OutputShopify {
   id                    Int        @id @default(autoincrement())

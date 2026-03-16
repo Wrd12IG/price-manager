@@ -64,6 +64,12 @@ export class SchedulerService {
                 });
 
                 logger.info(`✅ [Manutenzione] Pulizia completata: rimossi ${deleteResult.count} log più vecchi di 30 giorni.`);
+
+                // P2b: Cleanup automatico marchi/categorie orfane
+                const { NormalizationService } = await import('./NormalizationService');
+                const brandsDeleted = await NormalizationService.cleanOrphans('brand');
+                const catsDeleted = await NormalizationService.cleanOrphans('category');
+                logger.info(`✅ [Manutenzione] Rimossi ${brandsDeleted} marchi e ${catsDeleted} categorie orfane.`);
             } catch (err: any) {
                 logger.error('❌ [Manutenzione] Errore durante la pulizia dei log:', err.message);
             }

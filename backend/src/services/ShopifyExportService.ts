@@ -54,6 +54,23 @@ export class ShopifyExportService {
     }
 
     /**
+     * 🧼 Pulisce il titolo rimuovendo tag HTML e spazi eccessivi
+     */
+    private static cleanTitle(text: string | null | undefined): string {
+        if (!text) return '';
+        // Rimuovi tag HTML
+        let clean = text.replace(/<[^>]*>?/gm, '');
+        // Rimuovi entità HTML comuni
+        clean = clean.replace(/&nbsp;/g, ' ')
+                     .replace(/&amp;/g, '&')
+                     .replace(/&gt;/g, '>')
+                     .replace(/&lt;/g, '<')
+                     .replace(/&quot;/g, '"');
+        // Rimuovi spazi multipli e trim
+        return clean.replace(/\s+/g, ' ').trim();
+    }
+
+    /**
      * 🗂️ Risolve la categoria interna nel productType Shopify
      * tramite la mappatura configurata in ConfigurazioneSistema.
      */
@@ -170,12 +187,24 @@ export class ShopifyExportService {
                     const progress = Math.round((processedCount / totalToProcess) * 40); // 40% max per la fase di preparazione
                     jobProgressManager.updateProgress(jobId, progress, `Generazione export: ${processedCount}/${totalToProcess} prodotti...`);
                 }
-                let title = p.nomeProdotto;
-                let vendor = p.marchio?.nome || 'Generico';
-
-                if (!title) {
-                    title = p.datiIcecat?.descrizioneBrave || `Prodotto ${p.eanGtin}`;
+                // Priorità Titolo: Icecat (descrizioneBrave) > Nome Prodotto Fornitore > EAN
+                let rawTitle = p.datiIcecat?.descrizioneBrave || p.nomeProdotto || `Prodotto ${p.eanGtin}`;
+                let initialTitle = this.cleanTitle(rawTitle);
+                
+                // Se il titolo da Icecat è troppo lungo (un paragrafo), proviamo a estrarre solo la prima frase o usiamo il nome prodotto.
+                let title = initialTitle;
+                if (title.length > 150) {
+                    const firstPeriod = title.indexOf('.');
+                    if (firstPeriod > 20 && firstPeriod < 150) {
+                        title = title.substring(0, firstPeriod).trim();
+                    } else if (p.nomeProdotto && p.nomeProdotto.length < 150) {
+                        title = p.nomeProdotto;
+                    } else {
+                        title = title.substring(0, 150).trim() + '...';
+                    }
                 }
+
+                let vendor = p.marchio?.nome || 'Generico';
 
                 let immaginiUrls = p.datiIcecat?.urlImmaginiJson || null;
                 let descrizioneBreve = p.datiIcecat?.descrizioneBrave || null;
@@ -228,8 +257,8 @@ export class ShopifyExportService {
                 const outputData = {
                     utenteId,
                     masterFileId: p.id,
-                    handle: `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${p.id}`,
-                    title: title,
+                    handle: `${title.substring(0, 200).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${p.eanGtin || p.id}`,
+                    title: title.substring(0, 255),
                     bodyHtml: bodyHtml,
                     vendor: vendor,
                     productType: await this.resolveProductType(utenteId, p.categoria?.nome || 'Hardware'),
@@ -273,7 +302,7 @@ export class ShopifyExportService {
                     }
                 }
             },
-            take: 20
+            take: 100 // Aumentato batch size per processare più prodotti
         });
 
         // Filtriamo e aggiorniamo istantaneamente i prodotti che NON necessitano di AI

@@ -5,18 +5,16 @@ import dotenv from 'dotenv';
 // Carichiamo le variabili d'ambiente PRIMA di inizializzare Prisma
 dotenv.config();
 
-// FIX CRITICO: Forza SSL per Supabase e ottimizza pool
+// Ottimizzazione pool connessioni
 const getOptimizedUrl = (url: string | undefined) => {
     if (!url) return url;
 
-    // Rimuovi eventuali parametri esistenti di pool/timeout per evitare duplicati
+    // Rimuovi eventuali parametri esistenti
     let cleanUrl = url.split('?')[0];
 
-    // Configurazione ottimizzata per Supabase/Postgres
     // connection_limit: 20 (adatto per il traffico previsto)
     // pool_timeout: 30 (secondi di attesa per una connessione)
-    // sslmode: require (necessario per Supabase)
-    return `${cleanUrl}?connection_limit=20&pool_timeout=30&sslmode=require`;
+    return `${cleanUrl}?connection_limit=20&pool_timeout=30`;
 };
 
 const optimizedUrl = getOptimizedUrl(process.env.DATABASE_URL);

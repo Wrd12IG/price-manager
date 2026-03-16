@@ -3,7 +3,9 @@ import {
     getDuplicates, ignoreDuplicatePair,
     getCompetitiveSuggestion, getCompetitorPrices, addCompetitorPrice,
     deleteCompetitorPrice, getMarketStats, savePositioningRule,
-    reviewMetafields, reviewMetafieldsBatch
+    reviewMetafields, reviewMetafieldsBatch,
+    cleanupLongTitles,
+    normalizeCategories
 } from '../controllers/advanced.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
@@ -25,5 +27,11 @@ router.post('/positioning-rule', savePositioningRule);                         /
 // ─── #15 AI Metafield Review ────────────────────────────
 router.post('/ai-review/:outputId', reviewMetafields);              // POST /api/shopify/ai-review/:id
 router.post('/ai-review-batch', reviewMetafieldsBatch);             // POST /api/shopify/ai-review-batch
+
+// ─── #16 EMERGENCY RESET ────────────────────────────
+import { fullResetAdmin } from '../controllers/advanced.controller';
+router.post('/reset-all', fullResetAdmin);                          // POST /api/advanced/reset-all
+router.post('/cleanup-titles', cleanupLongTitles);                  // POST /api/advanced/cleanup-titles
+router.post('/normalize-categories', normalizeCategories);           // POST /api/advanced/normalize-categories
 
 export default router;

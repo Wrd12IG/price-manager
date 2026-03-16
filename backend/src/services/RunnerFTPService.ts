@@ -3,6 +3,7 @@ import { FTPService } from './FTPService';
 import { FileParserService } from './FileParserService';
 import { FileMergeService } from './FileMergeService';
 import { logger } from '../utils/logger';
+import { TextUtils } from '../utils/textUtils';
 
 export interface FTPFileConfig {
     directory: string;
@@ -123,7 +124,7 @@ export class RunnerFTPService {
         mergedRows = mergedRows.map(row => {
             // Se manca DescProd (da articoli.txt), usa Descrizione (da descp.txt)
             if (!row['DescProd'] && row['Descrizione']) {
-                row['DescProd'] = row['Descrizione'].replace(/<[^>]*>?/gm, '').substring(0, 255);
+                row['DescProd'] = TextUtils.cleanText(row['Descrizione'])?.substring(0, 255) || null;
             }
 
             // Fallback per PrezzoPers (da prezzi_no_sconto.txt se prezzi.txt manca)

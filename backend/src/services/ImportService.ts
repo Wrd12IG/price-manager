@@ -8,6 +8,7 @@ import { FTPService } from './FTPService';
 import { PassThrough } from 'stream';
 import { RunnerFTPService } from './RunnerFTPService';
 import { jobProgressManager } from './JobProgressService';
+import { TextUtils } from '../utils/textUtils';
 
 export class ImportService {
     private static normalizeEAN(ean: string | null): string | null {
@@ -60,6 +61,7 @@ export class ImportService {
         const parsed = parseFloat(s);
         return isNaN(parsed) ? 0 : parsed;
     }
+
 
     static async importaListino(utenteId: number, fornitoreId: number): Promise<{ total: number; success: boolean; error?: string }> {
         logger.info(`[IMPORT] Inizio elaborazione utente ${utenteId} - fornitore ${fornitoreId}`);
@@ -275,12 +277,12 @@ export class ImportService {
                     batch.push({
                         utenteId: utenteId,
                         fornitoreId: fornitore.id,
-                        skuFornitore: (sku || ean || 'N/A').toString(),
+                        skuFornitore: (sku || ean || 'N/A').toString().substring(0, 255),
                         eanGtin: ean,
                         partNumber: partNumber,
                         prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
                         quantitaDisponibile: isNaN(quantita) ? 0 : quantita,
-                        descrizioneOriginale: row[map['nome']]?.toString() || null,
+                        descrizioneOriginale: TextUtils.cleanText(row[map['nome']]?.toString() || null),
                         marca: row[map['marca']]?.toString() || null,
                         categoriaFornitore: row[map['categoria']]?.toString() || null,
                         altriCampiJson: JSON.stringify(row)
@@ -351,12 +353,12 @@ export class ImportService {
                     return {
                         utenteId: utenteId,
                         fornitoreId: fornitore.id,
-                        skuFornitore: skuRaw?.toString() || 'N/A',
+                        skuFornitore: (skuRaw?.toString() || 'N/A').substring(0, 255),
                         eanGtin: ean,
                         partNumber: partNumber?.toString() || null,
                         prezzoAcquisto: isNaN(prezzo) ? 0 : prezzo,
                         quantitaDisponibile: isNaN(quantita) ? 0 : quantita,
-                        descrizioneOriginale: row[map['nome']] || row['DescProd'] || null,
+                        descrizioneOriginale: TextUtils.cleanText(row[map['nome']] || row['DescProd'] || null),
                         marca: row[map['marca']] || row['Produttore'] || null,
                         categoriaFornitore: row[map['categoria']] || row['DescCatMerc'] || null,
                         altriCampiJson: JSON.stringify(row)

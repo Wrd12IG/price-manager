@@ -17,7 +17,7 @@ export class IcecatService {
     private static readonly BATCH_SIZE = 10;
     private static readonly DELAY_BETWEEN_REQUESTS = 500;
 
-    private static async getCredentials(utenteId: number): Promise<{ username: string; password: string }> {
+    public static async getCredentials(utenteId: number): Promise<{ username: string; password: string }> {
         const configs = await prisma.configurazioneSistema.findMany({
             where: { utenteId, chiave: { in: ['icecat_username', 'icecat_password'] } }
         });
@@ -142,8 +142,33 @@ export class IcecatService {
         // Estrazione marca
         const brand = product.Supplier?.$?.Name || attrs.Brand || '';
 
+        // Estrazione categoria Icecat (tassonomia standardizzata)
+        let category = '';
+        const catObj = product.Category;
+        if (catObj) {
+            const names = Array.isArray(catObj.Name) ? catObj.Name : (catObj.Name ? [catObj.Name] : []);
+            const nameObj = names[0]; // Prendiamo il primo nome (solitamente quello della lingua richiesta)
+
+            if (nameObj?.$?.Value) {
+                category = nameObj.$.Value;
+            } else if (nameObj?._) {
+                category = nameObj._;
+            } else if (catObj.$?.Name) {
+                category = catObj.$.Name;
+            }
+        }
+        
+        if (!category && product.CategoryName) {
+            category = typeof product.CategoryName === 'string' ? product.CategoryName : (product.CategoryName._ || product.CategoryName.$?.Value || '');
+        }
+
+        if (!category) {
+            logger.debug(`[Icecat Debug] Nessuna categoria trovata per ${product.$?.ID || 'unknown'}. CategoriaObj: ${JSON.stringify(catObj)}`);
+        }
+
         return {
             brand: brand,
+            categoriaIcecat: category || null,
             descrizioneBrave: short,
             descrizioneLunga: long,
             specificheTecnicheJson: JSON.stringify(features),
@@ -153,7 +178,7 @@ export class IcecatService {
         };
     }
 
-    private static async enrichSingleProduct(utenteId: number, product: any, credentials: { username: string; password: string }): Promise<boolean> {
+    public static async enrichSingleProduct(utenteId: number, product: any, credentials: { username: string; password: string }): Promise<boolean> {
         try {
             let data = await this.fetchProductData(product.eanGtin, credentials);
             let usedMpnFallback = false;
@@ -172,33 +197,39 @@ export class IcecatService {
             // Se Icecat restituisce un prodotto con EAN diverso (EAN condiviso/riutilizzato nel loro DB),
             // i dati vengono SCARTATI indipendentemente dal marchio.
             // Nota: quando si cerca per MPN/brand il campo EAN nella risposta potrebbe essere diverso → ok.
-            if (!usedMpnFallback) {
+            if (!usedMpnFallback && product.eanGtin) {
                 // Icecat restituisce l'EAN negli attributi XML: EAN_UPC o EAN
-                const returnedEan: string = (
-                    data?.$?.EAN_UPC ||
-                    data?.$?.['@_EAN_UPC'] ||
-                    data?.EAN_UPC ||
-                    ''
-                ).toString().trim().replace(/^0+/, ''); // normalizza rimuovendo zeri iniziali
+                const returnedEanRaw = data?.$?.EAN_UPC || data?.EAN_UPC || '';
+                const returnedEan = returnedEanRaw ? returnedEanRaw.toString().trim().replace(/^0+/, '') : ''; 
 
                 const queriedEan = product.eanGtin.toString().trim().replace(/^0+/, '');
 
+                // ✅ Validazione rilassata: scartiamo SOLO se Icecat restituisce un EAN DIVERSO da quello cercato.
+                // Se non restituisce alcun EAN (comune per alcuni brand), fidiamoci della query per EAN.
                 if (returnedEan && returnedEan !== queriedEan) {
-                    logger.warn(`⚠️ [Icecat] EAN MISMATCH per prodotto ID ${product.id}: interrogato '${queriedEan}' → Icecat ha restituito '${returnedEan}'. Dati SCARTATI (EAN condiviso o errato nel DB Icecat).`);
+                    logger.warn(`⚠️ [Icecat] EAN MISMATCH per prodotto ID ${product.id}: interrogato '${queriedEan}' → Icecat ha restituito '${returnedEan}'. Dati SCARTATI.`);
                     return false;
                 }
             }
 
             const extracted = this.extractProductData(data);
-            const { brand, ...dbData } = extracted; // brand non è presente nel modello DatiIcecat
+            const { brand, categoriaIcecat, ...dbData } = extracted;
 
             await prisma.datiIcecat.upsert({
                 where: { masterFileId: product.id },
-                create: { masterFileId: product.id, eanGtin: product.eanGtin, ...dbData, linguaOriginale: 'it' },
-                update: { ...dbData, updatedAt: new Date() }
+                create: { masterFileId: product.id, eanGtin: product.eanGtin, categoriaIcecat, ...dbData, linguaOriginale: 'it' },
+                update: { categoriaIcecat, ...dbData, updatedAt: new Date() }
             });
+
+            if (categoriaIcecat) {
+                logger.info(`📂 [Icecat] Categoria rilevata per ${product.eanGtin}: "${categoriaIcecat}"`);
+            }
+
             return true;
-        } catch { return false; }
+        } catch (error: any) { 
+            logger.error(`❌ [Icecat] Errore salvataggio dati per ${product.eanGtin}: ${error.message}`);
+            return false; 
+        }
     }
 
     static async enrichMasterFile(utenteId: number): Promise<any> {

@@ -6,6 +6,7 @@ import { DuplicateDetectionService } from '../services/DuplicateDetectionService
 import { CompetitivePricingService } from '../services/CompetitivePricingService';
 import { MetafieldReviewService } from '../services/MetafieldReviewService';
 import { logger } from '../utils/logger';
+import prisma from '../config/database'; // ADDED PRISMA IMPORT
 
 // ─────────────────────────────────────────────────────────
 // #13 — DUPLICATE DETECTION
@@ -159,4 +160,167 @@ export const reviewMetafieldsBatch = asyncHandler(async (req: AuthRequest, res: 
     // Log del risultato quando ha finito
     jobPromise.then(r => logger.info(`✅ AI Review batch completata: ${JSON.stringify(r)}`))
         .catch(e => logger.error(`❌ AI Review batch error: ${e.message}`));
+});
+
+
+// ─────────────────────────────────────────────────────────
+// #16 — EMERGENCY RESET
+// ─────────────────────────────────────────────────────────
+
+/**
+ * POST /api/advanced/reset-all
+ * Esegue il reset completo (MasterFile, OutputShopify, ListinoRaw)
+ */
+export const fullResetAdmin = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    logger.warn(`🚨 [Utente ${utenteId}] Avviato Full Reset da API`);
+
+    // 1. Ferma jobs
+    await prisma.logElaborazione.updateMany({
+        where: { utenteId, stato: 'running' },
+        data: { stato: 'stopped', dettagliJson: '{"reason": "Manual full reset"}' }
+    });
+
+    // 2. Elimina i dati nell'ordine corretto per le foreign key
+    const tables = [
+        prisma.competitorPrice,
+        prisma.priceHistory,
+        prisma.outputShopify,
+        prisma.masterFile, 
+        prisma.listinoRaw
+    ];
+
+    let deletedCounts: any = {};
+    for (const table of tables) {
+        const result = await (table as any).deleteMany({ where: { utenteId } });
+        // @ts-ignore
+        deletedCounts[table.name || 'table'] = result.count;
+    }
+
+    // 3. Resetta fornitori
+    await prisma.fornitore.updateMany({
+        where: { utenteId },
+        data: { ultimaSincronizzazione: null }
+    });
+
+    logger.info(`✅ [Utente ${utenteId}] Full Reset completato.`);
+    
+    res.json({
+        success: true,
+        message: 'Reset completo eseguito con successo sul database.',
+        details: deletedCounts
+    });
+});
+
+/**
+ * POST /api/advanced/cleanup-titles
+ * Esegue la pulizia dei titoli troppo lunghi o di bassa qualità.
+ * Rilascia i prodotti per far sì che vengano ri-arricchiti dall'AI.
+ */
+export const cleanupLongTitles = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    logger.info(`🔍 [Utente ${utenteId}] Avviata pulizia titoli lunghi...`);
+
+    // 1. Trova prodotti con titoli > 150 caratteri (scarsa qualità/fallback marketing)
+    const longTitles = await prisma.outputShopify.findMany({
+        where: {
+            utenteId,
+            OR: [
+                { title: { contains: 'Descrizione' } },
+                { title: { contains: 'Specifiche' } },
+                { title: { contains: 'Dettagli' } },
+                { title: { contains: 'Caratteristiche' } },
+                {
+                    title: {
+                        mode: 'insensitive',
+                        contains: ' - ' // Spesso i titoli fallback hanno molti ' - '
+                    }
+                }
+            ]
+        },
+        select: { id: true, title: true }
+    });
+
+    // Filtriamo quelli veramente lunghi (> 150)
+    const toReset = longTitles.filter(p => p.title.length > 150);
+
+    logger.info(`📊 Trovati ${toReset.length} prodotti con titoli sospetti (>150 char).`);
+
+    if (toReset.length > 0) {
+        const ids = toReset.map(p => p.id);
+        
+        // Reset per AI enrichment
+        await prisma.outputShopify.updateMany({
+            where: { id: { in: ids } },
+            data: {
+                aiEnriched: false,
+                statoCaricamento: 'pending' // Riporta in coda per caricamento/aggiornamento
+            }
+        });
+
+        logger.info(`✅ Reset completato per ${toReset.length} prodotti.`);
+    }
+
+    // 2. Troncamento forzato per tutti quelli che superano i 255 (limite Shopify)
+    // Questo è un "fail-safe" finale
+    const limitExceeded = await prisma.outputShopify.findMany({
+        where: {
+            utenteId,
+            title: {
+                gt: '' // solo per sicurezza
+            }
+        },
+        select: { id: true, title: true }
+    });
+
+    const tooLongForShopify = limitExceeded.filter(p => p.title.length > 250);
+    
+    if (tooLongForShopify.length > 0) {
+        logger.info(`✂️ Troncamento forzato per ${tooLongForShopify.length} prodotti > 250 caratteri.`);
+        
+        for (const p of tooLongForShopify) {
+            await prisma.outputShopify.update({
+                where: { id: p.id },
+                data: {
+                    title: p.title.substring(0, 250).trim()
+                }
+            });
+        }
+    }
+
+    res.json({
+        success: true,
+        message: 'Pulizia titoli completata.',
+        data: {
+            resetForAi: toReset.length,
+            truncatedForShopify: tooLongForShopify.length
+        }
+    });
+});
+
+// ─────────────────────────────────────────────────────────
+// NORMALIZZAZIONE CATEGORIE VIA ICECAT
+// ─────────────────────────────────────────────────────────
+
+/**
+ * POST /api/advanced/normalize-categories
+ * Normalizza le categorie dei prodotti nel MasterFile usando le categorie Icecat.
+ * Utile per aggiornare retroattivamente i prodotti già arricchiti.
+ */
+export const normalizeCategories = asyncHandler(async (req: AuthRequest, res: Response) => {
+    const utenteId = req.utenteId;
+    if (!utenteId) throw new AppError('Non autorizzato', 401);
+
+    const { MasterFileService } = await import('../services/MasterFileService');
+    const result = await MasterFileService.normalizeCategoriesFromIcecat(utenteId);
+
+    res.json({
+        success: true,
+        message: `Normalizzazione completata: ${result.normalized}/${result.total} categorie aggiornate da Icecat.`,
+        data: result
+    });
 });

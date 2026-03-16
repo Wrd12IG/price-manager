@@ -6,7 +6,7 @@
 
 VPS_IP="31.14.139.249"
 VPS_USER="root"
-VPS_PASS="<YOUR_VPS_PASSWORD>"
+VPS_PASS="WrDigital2026!"
 APP_DIR="/opt/price-manager"
 LOCAL_DIR="/Users/wrdigital/.gemini/antigravity/scratch/ecommerce-price-manager"
 SSHPASS_BIN="$HOME/sshpass"

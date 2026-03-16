@@ -304,14 +304,16 @@ export class ShopifyService {
                             } else {
                                 // ❌ NON inviare metafields nel payload del prodotto - Shopify li ignora!
 
-                                if (productId) {
-                                    // ✅ Prodotto già esiste su Shopify: fai UPDATE (PUT) invece di CREATE (POST)
-                                    // ⚠️ NON includere 'images' nella PUT: Shopify le AGGIUNGE (non sostituisce)
-                                    //    causando duplicati e triplicati ad ogni sincronizzazione!
-                                    logger.info(`🔄 Prodotto ${p.sku} già esiste su Shopify (ID: ${productId}), aggiornamento completo (senza immagini)...`);
-                                    const updatePayload = {
-                                        product: {
-                                            title: p.title,
+                                    let safeTitle = '';
+                                    if (productId) {
+                                        // ✅ Prodotto già esiste su Shopify: fai UPDATE (PUT) invece di CREATE (POST)
+                                        // ⚠️ NON includere 'images' nella PUT: Shopify le AGGIUNGE (non sostituisce)
+                                        //    causando duplicati e triplicati ad ogni sincronizzazione!
+                                        logger.info(`🔄 Prodotto ${p.sku} già esiste su Shopify (ID: ${productId}), aggiornamento completo (senza immagini)...`);
+                                        safeTitle = (p.title || '').substring(0, 255);
+                                        const updatePayload = {
+                                            product: {
+                                                title: safeTitle,
                                             body_html: p.bodyHtml,
                                             vendor: p.vendor,
                                             product_type: p.productType,
@@ -334,12 +336,13 @@ export class ShopifyService {
                                             timeout: 60000
                                         }
                                     );
-                                } else {
-                                    // 🆕 Prodotto nuovo: crea su Shopify (POST) — qui le immagini si inviano solo in creazione
-                                    const createPayload = {
-                                        product: {
-                                            title: p.title,
-                                            body_html: p.bodyHtml,
+                                    } else {
+                                        // 🆕 Prodotto nuovo: crea su Shopify (POST) — qui le immagini si inviano solo in creazione
+                                        safeTitle = (p.title || '').substring(0, 255);
+                                        const createPayload = {
+                                            product: {
+                                                title: safeTitle,
+                                                body_html: p.bodyHtml,
                                             vendor: p.vendor,
                                             product_type: p.productType,
                                             status: status,
@@ -460,7 +463,7 @@ export class ShopifyService {
                 } catch (e: any) {
                     const errorMsg = e.response?.data ? JSON.stringify(e.response.data) : e.message;
                     logger.error(`Errore upload prodotto ${p.id}: ${errorMsg}`);
-                    syncLog(utenteId, 'error', `❌ ${p.title?.substring(0, 40) || p.sku} — ${errorMsg.substring(0, 80)}`);
+                    syncLog(utenteId, 'error', `❌ ${p.title?.substring(0, 40) || p.sku} (len: ${safeTitle?.length || '?'}) — ${errorMsg.substring(0, 80)}`);
 
                     await prisma.outputShopify.update({
                         where: { id: p.id },
@@ -797,18 +800,19 @@ export class ShopifyService {
             let response: any;
             const priceStr = typeof p.variantPrice === 'number' ? p.variantPrice.toFixed(2) : parseFloat(String(p.variantPrice || '0').replace(',', '.')).toFixed(2);
 
+            let safeTitleRetry = (p.title || '').substring(0, 255);
             if (productId) {
                 // Prodotto già su Shopify → aggiornamento completo
                 // ⚠️ NON includere 'images' nella PUT: Shopify le AGGIUNGE invece di sostituirle → duplicati!
                 response = await axios.put(
                     `https://${cleanShopUrl}/admin/api/2024-01/products/${productId}.json`,
-                    { product: { id: productId, title: p.title, body_html: p.bodyHtml, vendor: p.vendor, product_type: p.productType, status, variants: [{ sku: p.sku, barcode: p.barcode, price: priceStr, inventory_quantity: p.variantInventoryQty }] } },
+                    { product: { id: productId, title: safeTitleRetry, body_html: p.bodyHtml, vendor: p.vendor, product_type: p.productType, status, variants: [{ sku: p.sku, barcode: p.barcode, price: priceStr, inventory_quantity: p.variantInventoryQty }] } },
                     { headers: { 'X-Shopify-Access-Token': token }, timeout: 60000 }
                 );
             } else {
                 // Nuovo prodotto → crea (immagini inviate solo alla creazione)
                 response = await axios.post(shopifyUrl,
-                    { product: { title: p.title, body_html: p.bodyHtml, vendor: p.vendor, product_type: p.productType, status, tags: p.tags, variants: [{ sku: p.sku, barcode: p.barcode, price: priceStr, inventory_quantity: p.variantInventoryQty }], images: images.length > 0 ? images : undefined } },
+                    { product: { title: safeTitleRetry, body_html: p.bodyHtml, vendor: p.vendor, product_type: p.productType, status, tags: p.tags, variants: [{ sku: p.sku, barcode: p.barcode, price: priceStr, inventory_quantity: p.variantInventoryQty }], images: images.length > 0 ? images : undefined } },
                     { headers: { 'X-Shopify-Access-Token': token }, timeout: 60000 }
                 );
             }
@@ -853,7 +857,7 @@ export class ShopifyService {
                 where: { id: outputId },
                 data: { statoCaricamento: 'error', errorMessage: errorMsg }
             });
-            syncLog(utenteId, 'error', `❌ Retry fallito: ${p.sku} — ${errorMsg.substring(0, 80)}`);
+            syncLog(utenteId, 'error', `❌ Retry fallito: ${p.sku} (len: ${safeTitleRetry?.length || '?'}) — ${errorMsg.substring(0, 80)}`);
             logger.error(`❌ [Retry] Prodotto ${p.sku}: ${errorMsg}`);
             return { success: false };
         }

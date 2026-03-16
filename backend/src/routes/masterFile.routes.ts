@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getMasterFile, consolidateMasterFile, getMasterFileFilters } from '../controllers/masterFile.controller';
+import { getMasterFile, consolidateMasterFile, getMasterFileFilters, resetCatalog } from '../controllers/masterFile.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -10,5 +10,6 @@ router.use(authMiddleware);
 router.get('/', getMasterFile);
 router.get('/filters', getMasterFileFilters);
 router.post('/consolidate', consolidateMasterFile);
+router.post('/reset', resetCatalog);
 
 export default router;
