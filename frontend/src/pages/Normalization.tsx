@@ -24,7 +24,7 @@ import {
     Tooltip,
     TextField,
     Autocomplete,
-    Divider
+    Grid
 } from '@mui/material';
 import {
     Merge as MergeIcon,
@@ -33,7 +33,8 @@ import {
     Search as SearchIcon,
     AutoFixHigh as MagicIcon,
     Info as InfoIcon,
-    DeleteSweep as CleanupIcon
+    DeleteSweep as CleanupIcon,
+    CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import api from '../utils/api';
 import { toast } from 'react-toastify';
@@ -57,17 +58,26 @@ const Normalization: React.FC = () => {
         type: 'brand' | 'category';
     }>({ open: false, source: null, target: null, type: 'brand' });
 
-    const type = tab === 0 ? 'brand' : 'category';
+    // Quality Hub State
+    const [qualityIssues, setQualityIssues] = useState<any[]>([]);
+    const [qualityLoading, setQualityLoading] = useState(false);
+
+    // Tipo risorsa per le API (brand o category)
+    const resourceType = tab === 0 ? 'brand' : 'category';
 
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [statsRes, dupsRes] = await Promise.all([
-                api.get(`/normalization/stats/${type}`),
-                api.get(`/normalization/duplicates/${type}`)
-            ]);
-            setStats(statsRes.data);
-            setDuplicates(dupsRes.data);
+            if (tab < 2) {
+                const [statsRes, dupsRes] = await Promise.all([
+                    api.get(`/normalization/stats/${resourceType}`),
+                    api.get(`/normalization/duplicates/${resourceType}`)
+                ]);
+                setStats(statsRes.data);
+                setDuplicates(dupsRes.data);
+            } else {
+                fetchQualityIssues();
+            }
         } catch (error) {
             toast.error('Errore nel caricamento dei dati');
         } finally {
@@ -75,11 +85,41 @@ const Normalization: React.FC = () => {
         }
     };
 
+    const fetchQualityIssues = async () => {
+        setQualityLoading(true);
+        try {
+            const res = await api.get('/normalization/quality-issues');
+            setQualityIssues(res.data);
+        } catch (e) {
+            toast.error('Errore caricamento suggerimenti qualità');
+        } finally {
+            setQualityLoading(false);
+        }
+    };
+
+    const handleApplyFixes = async () => {
+        setLoading(true);
+        try {
+            await api.post('/normalization/quality-fixes', {
+                fixes: qualityIssues.map(q => ({
+                    masterFileId: q.masterFileId,
+                    suggestedCategory: q.suggestedCategory
+                }))
+            });
+            toast.success('Suggerimenti AI applicati con successo');
+            fetchQualityIssues();
+        } catch (e) {
+            toast.error('Errore durante l\'applicazione dei suggerimenti');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSearch = async (query: string) => {
-        if (query.length < 1) return;  // P3: Abbassato da 2 a 1 carattere
+        if (query.length < 1) return;
         setSearchLoading(true);
         try {
-            const res = await api.get(`/normalization/search/${type}?q=${query}`);
+            const res = await api.get(`/normalization/search/${resourceType}?q=${query}`);
             setSearchOptions(res.data);
         } catch (error) {
             console.error(error);
@@ -88,12 +128,11 @@ const Normalization: React.FC = () => {
         }
     };
 
-    // P3: Pre-caricamento top items quando l'utente apre il dropdown
     const handleDropdownOpen = async () => {
         if (searchOptions.length === 0) {
             setSearchLoading(true);
             try {
-                const res = await api.get(`/normalization/search/${type}`);
+                const res = await api.get(`/normalization/search/${resourceType}`);
                 setSearchOptions(res.data);
             } catch (error) {
                 console.error(error);
@@ -103,18 +142,16 @@ const Normalization: React.FC = () => {
         }
     };
 
-    // P2b: Pulizia marchi/categorie orfane
     const handleCleanOrphans = async () => {
         try {
-            const res = await api.delete(`/normalization/clean-orphans/${type}`);
-            toast.success(`Rimossi ${res.data.deleted} ${type === 'brand' ? 'marchi' : 'categorie'} senza prodotti`);
+            const res = await api.delete(`/normalization/clean-orphans/${resourceType}`);
+            toast.success(`Rimossi ${res.data.deleted} ${resourceType === 'brand' ? 'marchi' : 'categorie'} senza prodotti`);
             fetchData();
         } catch (error) {
             toast.error('Errore durante la pulizia');
         }
     };
 
-    // P3b: Auto-normalizzazione batch via Icecat
     const handleAutoNormalize = async () => {
         setLoading(true);
         try {
@@ -155,7 +192,7 @@ const Normalization: React.FC = () => {
         <Container maxWidth="lg" sx={{ py: 4 }}>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
                 <Typography variant="h4" fontWeight="bold" color="primary">
-                    Normalizzazione Catalogo
+                    Qualità & Normalizzazione
                 </Typography>
                 <Box>
                     <Tooltip title="Rimuovi marchi/categorie con 0 prodotti">
@@ -166,7 +203,7 @@ const Normalization: React.FC = () => {
                             onClick={handleCleanOrphans}
                             sx={{ mr: 1 }}
                         >
-                            Pulizia Orfani
+                            Orfani
                         </Button>
                     </Tooltip>
                     <Tooltip title="Usa i dati Icecat per pulire il catalogo automaticamente">
@@ -176,260 +213,196 @@ const Normalization: React.FC = () => {
                             startIcon={<MagicIcon />}
                             onClick={handleAutoNormalize}
                             sx={{ mr: 1 }}
-                            disabled={loading || type !== 'category'}
+                            disabled={loading || resourceType !== 'category'}
                         >
-                            Auto-Normalizza Icecat
+                            Auto-Icecat
                         </Button>
                     </Tooltip>
-                    <Button
-                        variant="outlined"
-                        startIcon={<InfoIcon />}
-                        onClick={() => toast.info('Questa sezione permette di pulire il catalogo unendo marchi o categorie simili.')}
-                    >
-                        Guida
-                    </Button>
                 </Box>
             </Box>
 
             <Paper sx={{ mb: 4 }}>
                 <Tabs value={tab} onChange={(_, val) => setTab(val)} centered>
-                    <Tab label="Marchi (Brand)" />
+                    <Tab label="Marchi" />
                     <Tab label="Categorie" />
+                    <Tab label="Hub Qualità (AI Blocked)" />
                 </Tabs>
             </Paper>
 
-            {/* Merge Manuale UI */}
-            <Paper sx={{ p: 3, mb: 4, bgcolor: '#f8f9fa', border: '1px solid #dee2e6' }}>
-                <Typography variant="h6" gutterBottom display="flex" alignItems="center">
-                    <SearchIcon sx={{ mr: 1 }} /> Unione Manuale Rapida
-                </Typography>
-                <Typography variant="body2" color="textSecondary" mb={3}>
-                    Seleziona due elementi per unirli manualmente, anche se l'algoritmo non li suggerisce.
-                </Typography>
-                <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
-                    <Autocomplete
-                        sx={{ flex: 1, minWidth: 250 }}
-                        options={searchOptions}
-                        getOptionLabel={(option) => typeof option === 'string' ? option : `${option.nome || ''}${option._count?.masterFiles !== undefined ? ` (${option._count.masterFiles})` : ''}`}
-                        loading={searchLoading}
-                        filterOptions={(x) => x}
-                        value={manualSource}
-                        onOpen={handleDropdownOpen}
-                        onInputChange={(_, val) => handleSearch(val)}
-                        onChange={(_, val) => setManualSource(val)}
-                        renderInput={(params) => (
-                            <TextField 
-                                {...params} 
-                                label={`Elemento SORGENTE (da eliminare)`} 
-                                variant="outlined" 
-                                size="small"
-                                InputProps={{
-                                    ...params.InputProps,
-                                    endAdornment: (
-                                        <>
-                                            {searchLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                                            {params.InputProps.endAdornment}
-                                        </>
-                                    ),
-                                }}
+            {tab < 2 ? (
+                <Box>
+                    {/* Merge Manuale UI */}
+                    <Paper sx={{ p: 3, mb: 4, bgcolor: '#f8f9fa', border: '1px solid #dee2e6' }}>
+                        <Typography variant="h6" gutterBottom display="flex" alignItems="center">
+                            <SearchIcon sx={{ mr: 1 }} /> Unione Manuale
+                        </Typography>
+                        <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
+                            <Autocomplete
+                                sx={{ flex: 1, minWidth: 250 }}
+                                options={searchOptions}
+                                getOptionLabel={(option) => typeof option === 'string' ? option : `${option.nome || ''}${option._count?.masterFiles !== undefined ? ` (${option._count.masterFiles})` : ''}`}
+                                loading={searchLoading}
+                                filterOptions={(x) => x}
+                                value={manualSource}
+                                onOpen={handleDropdownOpen}
+                                onInputChange={(_, val) => handleSearch(val)}
+                                onChange={(_, val) => setManualSource(val)}
+                                renderInput={(params) => (
+                                    <TextField {...params} label="SORGENTE" variant="outlined" size="small" />
+                                )}
                             />
-                        )}
-                    />
-
-                    <CompareIcon sx={{ color: 'text.secondary', mx: 1 }} />
-
-                    <Autocomplete
-                        sx={{ flex: 1, minWidth: 250 }}
-                        options={searchOptions}
-                        getOptionLabel={(option) => typeof option === 'string' ? option : `${option.nome || ''}${option._count?.masterFiles !== undefined ? ` (${option._count.masterFiles})` : ''}`}
-                        loading={searchLoading}
-                        filterOptions={(x) => x}
-                        value={manualTarget}
-                        onOpen={handleDropdownOpen}
-                        onInputChange={(_, val) => handleSearch(val)}
-                        onChange={(_, val) => setManualTarget(val)}
-                        renderInput={(params) => (
-                            <TextField 
-                                {...params} 
-                                label="Elemento TARGET (da mantenere)" 
-                                variant="outlined" 
-                                size="small"
-                                InputProps={{
-                                    ...params.InputProps,
-                                    endAdornment: (
-                                        <>
-                                            {searchLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                                            {params.InputProps.endAdornment}
-                                        </>
-                                    ),
-                                }}
+                            <CompareIcon sx={{ color: 'text.secondary' }} />
+                            <Autocomplete
+                                sx={{ flex: 1, minWidth: 250 }}
+                                options={searchOptions}
+                                getOptionLabel={(option) => typeof option === 'string' ? option : `${option.nome || ''}${option._count?.masterFiles !== undefined ? ` (${option._count.masterFiles})` : ''}`}
+                                loading={searchLoading}
+                                filterOptions={(x) => x}
+                                value={manualTarget}
+                                onOpen={handleDropdownOpen}
+                                onInputChange={(_, val) => handleSearch(val)}
+                                onChange={(_, val) => setManualTarget(val)}
+                                renderInput={(params) => (
+                                    <TextField {...params} label="TARGET" variant="outlined" size="small" />
+                                )}
                             />
-                        )}
-                    />
-                    <Button 
-                        variant="contained" 
-                        color="primary" 
-                        disabled={!manualSource || !manualTarget || manualSource.id === manualTarget.id}
-                        startIcon={<MergeIcon />}
-                        onClick={() => setMergeDialog({ open: true, source: manualSource, target: manualTarget, type })}
-                    >
-                        Unisci
-                    </Button>
+                            <Button 
+                                variant="contained" 
+                                color="primary" 
+                                disabled={!manualSource || !manualTarget || manualSource.id === manualTarget.id}
+                                startIcon={<MergeIcon />}
+                                onClick={() => setMergeDialog({ open: true, source: manualSource, target: manualTarget, type: resourceType })}
+                            >
+                                Unisci
+                            </Button>
+                        </Box>
+                    </Paper>
+
+                    {/* Suggerimenti Duplicati */}
+                    {duplicates.length > 0 && (
+                        <Box mb={4}>
+                            <Typography variant="h6" gutterBottom display="flex" alignItems="center">
+                                <MagicIcon sx={{ mr: 1, color: 'purple' }} /> Suggerimenti Smart ({duplicates.length})
+                            </Typography>
+                            <Box display="grid" gridTemplateColumns="repeat(auto-fill, minmax(400px, 1fr))" gap={2}>
+                                {duplicates.map((dup, idx) => (
+                                    <Paper key={idx} sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderLeft: '5px solid purple' }}>
+                                        <Box>
+                                            <Typography variant="caption" color="purple" fontWeight="bold">{dup.reason}</Typography>
+                                            <Box display="flex" alignItems="center" gap={1}>
+                                                <Typography variant="body2" fontWeight="bold">{dup.item1.nome}</Typography>
+                                                <CompareIcon sx={{ fontSize: 14 }} />
+                                                <Typography variant="body2" fontWeight="bold">{dup.item2.nome}</Typography>
+                                            </Box>
+                                        </Box>
+                                        <Button size="small" variant="outlined" onClick={() => setMergeDialog({ open: true, source: dup.item1, target: dup.item2, type: resourceType })}>Unisci</Button>
+                                    </Paper>
+                                ))}
+                            </Box>
+                        </Box>
+                    )}
+
+                    {/* Tabella Completa */}
+                    <TableContainer component={Paper}>
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>Nome</TableCell>
+                                    <TableCell align="center">Prodotti</TableCell>
+                                    {resourceType === 'category' && <TableCell>Icecat Suggestion</TableCell>}
+                                    <TableCell align="right">Azioni</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {loading ? (
+                                    <TableRow><TableCell colSpan={4} align="center"><CircularProgress sx={{ my: 2 }}/></TableCell></TableRow>
+                                ) : stats.map((item) => (
+                                    <TableRow key={item.id} hover>
+                                        <TableCell><Typography variant="body2" fontWeight="500">{item.nome}</Typography></TableCell>
+                                        <TableCell align="center"><Chip label={item._count?.masterFiles || 0} size="small" variant="outlined" /></TableCell>
+                                        {resourceType === 'category' && (
+                                            <TableCell>
+                                                {item.icecatSuggestion ? (
+                                                    <Box display="flex" alignItems="center" gap={1}>
+                                                        <Chip label={item.icecatSuggestion} size="small" sx={{ bgcolor: 'purple', color: 'white' }} />
+                                                        {item.nome !== item.icecatSuggestion && (
+                                                            <IconButton size="small" color="secondary" onClick={() => {
+                                                                const target = stats.find(s => s.nome.toLowerCase() === item.icecatSuggestion.toLowerCase());
+                                                                if (target) setMergeDialog({ open: true, source: item, target, type: 'category' });
+                                                                else toast.warning("La categoria target non esiste ancora in questa lista.");
+                                                            }}>
+                                                                <MagicIcon fontSize="small" />
+                                                            </IconButton>
+                                                        )}
+                                                    </Box>
+                                                ) : '-'}
+                                            </TableCell>
+                                        )}
+                                        <TableCell align="right">
+                                            <IconButton size="small" onClick={() => { setManualSource(item); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
+                                                <MergeIcon fontSize="small" />
+                                            </IconButton>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
                 </Box>
-            </Paper>
+            ) : (
+                <Box>
+                    <Alert severity="info" sx={{ mb: 3 }}>
+                        Prodotti bloccati per la sincronizzazione Shopify a causa di dati incompleti o categorie generiche.
+                    </Alert>
 
-            {/* Sezione Duplicati Suggeriti */}
-            {duplicates.length > 0 && (
-                <Box mb={4}>
-                    <Typography variant="h6" gutterBottom display="flex" alignItems="center">
-                        <MagicIcon sx={{ mr: 1, color: 'purple' }} />
-                        Duplicati Suggeriti ({duplicates.length})
-                    </Typography>
-                    <Box display="grid" gridTemplateColumns="repeat(auto-fill, minmax(450px, 1fr))" gap={2}>
-                        {duplicates.map((dup, idx) => (
-                            <Paper key={idx} sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderLeft: '5px solid purple' }}>
-                                <Box sx={{ flex: 1 }}>
-                                    <Typography variant="subtitle2" color="purple" fontWeight="bold" sx={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>
-                                        {dup.reason}
-                                    </Typography>
-                                    <Box display="flex" alignItems="center" gap={1} mt={1}>
-                                        <Typography variant="body1" fontWeight="bold">{dup.item1.nome}</Typography>
-                                        <CompareIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
-                                        <Typography variant="body1" fontWeight="bold">{dup.item2.nome}</Typography>
-                                    </Box>
-                                </Box>
-                                <Button
-                                    size="small"
-                                    variant="outlined"
-                                    color="secondary"
-                                    startIcon={<MergeIcon />}
-                                    onClick={() => setMergeDialog({ open: true, source: dup.item1, target: dup.item2, type })}
-                                >
-                                    Unisci
+                    {qualityLoading ? (
+                        <Box display="flex" justifyContent="center" py={10}><CircularProgress /></Box>
+                    ) : qualityIssues.length === 0 ? (
+                        <Paper sx={{ p: 10, textAlign: 'center' }}>
+                            <CheckCircleIcon color="success" sx={{ fontSize: 60, mb: 2 }} />
+                            <Typography>Nessun prodotto bloccato per qualità.</Typography>
+                        </Paper>
+                    ) : (
+                        <Box>
+                            <Box display="flex" justifyContent="flex-end" mb={2}>
+                                <Button variant="contained" color="primary" startIcon={<MagicIcon />} onClick={handleApplyFixes} disabled={loading}>
+                                    Applica Suggerimenti AI ({qualityIssues.length})
                                 </Button>
-                            </Paper>
-                        ))}
-                    </Box>
+                            </Box>
+                            <TableContainer component={Paper}>
+                                <Table>
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell>Titolo Prodotto</TableCell>
+                                            <TableCell>Cat. Attuale</TableCell>
+                                            <TableCell>Suggerimento AI</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {qualityIssues.map((q, i) => (
+                                            <TableRow key={i}>
+                                                <TableCell>{q.title}</TableCell>
+                                                <TableCell><Chip label={q.currentCategory} size="small" /></TableCell>
+                                                <TableCell><Chip label={q.suggestedCategory} color="primary" variant="outlined" size="small" /></TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </Box>
+                    )}
                 </Box>
             )}
 
-            {/* Tabella Completa */}
-            <TableContainer component={Paper}>
-                <Box p={2} display="flex" justifyContent="space-between" alignItems="center">
-                    <Typography variant="h6">Elenco Completo {tab === 0 ? 'Marchi' : 'Categorie'}</Typography>
-                </Box>
-                <Table size="small">
-                    <TableHead>
-                        <TableRow>
-                            <TableCell>Nome</TableCell>
-                            <TableCell align="center">Prodotti</TableCell>
-                            {type === 'category' && <TableCell>Suggerimento Icecat</TableCell>}
-                            <TableCell>Alias Attivi</TableCell>
-                            <TableCell align="right">Azioni</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {loading ? (
-                            <TableRow>
-                                <TableCell colSpan={5} align="center">
-                                    <CircularProgress sx={{ my: 4 }} />
-                                </TableCell>
-                            </TableRow>
-                        ) : stats.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={5} align="center">Nessun dato trovato</TableCell>
-                            </TableRow>
-                        ) : (
-                            stats.map((item) => (
-                                <TableRow key={item.id} hover>
-                                    <TableCell>
-                                        <Typography fontWeight="500">{item.nome}</Typography>
-                                    </TableCell>
-                                    <TableCell align="center">
-                                        <Chip
-                                            label={item._count?.masterFiles || 0}
-                                            size="small"
-                                            color={item._count?.masterFiles > 0 ? "primary" : "default"}
-                                            variant="outlined"
-                                        />
-                                    </TableCell>
-                                    {type === 'category' && (
-                                        <TableCell>
-                                            {item.icecatSuggestion ? (
-                                                <Box display="flex" alignItems="center" gap={1}>
-                                                    <Chip label={item.icecatSuggestion} size="small" component="span" sx={{ bgcolor: 'purple', color: 'white', fontWeight: 'bold' }} />
-                                                    {item.nome !== item.icecatSuggestion && (
-                                                        <Tooltip title={`Unisci a ${item.icecatSuggestion}`}>
-                                                            <IconButton 
-                                                                size="small" 
-                                                                color="primary"
-                                                                onClick={async () => {
-                                                                    const target = stats.find(s => s.nome.toLowerCase() === item.icecatSuggestion.toLowerCase());
-                                                                    if (target) {
-                                                                        setMergeDialog({ open: true, source: item, target, type });
-                                                                    } else {
-                                                                        toast.warning(`La categoria target "${item.icecatSuggestion}" non esiste ancora. Verrà creata nel prossimo consolidamento.`);
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <MagicIcon fontSize="small" />
-                                                            </IconButton>
-                                                        </Tooltip>
-                                                    )}
-                                                </Box>
-                                            ) : '-'}
-                                        </TableCell>
-                                    )}
-                                    <TableCell>
-                                        <Box display="flex" flexWrap="wrap" gap={0.5}>
-                                            {item.aliases?.map((a: any) => (
-                                                <Chip key={a.id} label={a.alias} size="small" variant="outlined" />
-                                            ))}
-                                            {(!item.aliases || item.aliases.length === 0) && '-'}
-                                        </Box>
-                                    </TableCell>
-                                    <TableCell align="right">
-                                        <IconButton size="small" onClick={() => {
-                                            setManualSource(item);
-                                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                                            toast.info(`${item.nome} selezionato come sorgente.`);
-                                        }}>
-                                            <MergeIcon fontSize="small" />
-                                        </IconButton>
-                                    </TableCell>
-                                </TableRow>
-                            ))
-                        )}
-                    </TableBody>
-                </Table>
-            </TableContainer>
-
-            {/* Dialog Unione */}
-            <Dialog open={mergeDialog.open} onClose={() => setMergeDialog({ ...mergeDialog, open: false })} maxWidth="sm" fullWidth>
-                <DialogTitle>Conferma Unione {type === 'brand' ? 'Marchi' : 'Categorie'}</DialogTitle>
+            <Dialog open={mergeDialog.open} onClose={() => setMergeDialog({ ...mergeDialog, open: false })} maxWidth="xs" fullWidth>
+                <DialogTitle>Conferma Unione</DialogTitle>
                 <DialogContent>
-                    <Box textAlign="center" py={2}>
-                        <Box display="flex" justifyContent="center" alignItems="center" gap={3} my={2}>
-                            <Paper sx={{ p: 2, bgcolor: 'error.light', color: 'white', minWidth: 120 }}>
-                                <Typography fontWeight="bold">{mergeDialog.source?.nome}</Typography>
-                                <Typography variant="caption">Sorgente</Typography>
-                            </Paper>
-                            <MergeIcon fontSize="large" color="action" />
-                            <Paper sx={{ p: 2, bgcolor: 'success.light', color: 'white', minWidth: 120 }}>
-                                <Typography fontWeight="bold">{mergeDialog.target?.nome}</Typography>
-                                <Typography variant="caption">Target</Typography>
-                            </Paper>
-                        </Box>
-                        <Alert severity="warning" sx={{ mt: 2 }}>
-                            Questa operazione è irreversibile. Tutti i prodotti di <b>{mergeDialog.source?.nome}</b> passeranno a <b>{mergeDialog.target?.nome}</b> e verrà creato un alias automatico per le future importazioni.
-                        </Alert>
-                    </Box>
+                    <Typography variant="body2">Vuoi unire <b>{mergeDialog.source?.nome}</b> in <b>{mergeDialog.target?.nome}</b>?</Typography>
+                    <Alert severity="warning" sx={{ mt: 2 }}>Operazione irreversibile.</Alert>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setMergeDialog({ ...mergeDialog, open: false })}>Annulla</Button>
-                    <Button variant="contained" color="primary" onClick={() => handleMerge(true)}>
-                        Conferma ed Unisci
-                    </Button>
+                    <Button variant="contained" color="primary" onClick={() => handleMerge(true)}>Unisci</Button>
                 </DialogActions>
             </Dialog>
         </Container>

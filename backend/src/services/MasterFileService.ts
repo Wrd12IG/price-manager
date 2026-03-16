@@ -279,8 +279,19 @@ export class MasterFileService {
         existingMarchi.forEach(m => marchiMap.set(m.nome.toLowerCase().trim(), m.id));
         existingCat.forEach(c => categorieMap.set(c.nome.toLowerCase().trim(), c.id));
 
-        brandAliases.forEach(a => marchiMap.set(a.alias.toLowerCase().trim(), a.targetId));
-        catAliases.forEach(a => categorieMap.set(a.alias.toLowerCase().trim(), a.targetId));
+        brandAliases.forEach(a => {
+            const lowAlias = a.alias.toLowerCase().trim();
+            marchiMap.set(lowAlias, a.targetId);
+            // P2/Refinement: Aggiungi alias all'indice semantico
+            semanticBrandIndex.set(this.semanticKey(a.alias), a.targetId);
+        });
+
+        catAliases.forEach(a => {
+            const lowAlias = a.alias.toLowerCase().trim();
+            categorieMap.set(lowAlias, a.targetId);
+            // P2/Refinement: Aggiungi alias all'indice semantico
+            semanticCatIndex.set(this.semanticKey(a.alias), a.targetId);
+        });
 
         // 4. PRE-ELABORA MARCHI E CATEGORIE MANCANTI
         // P2a: Uso di semanticKey per deduplicazione e toTitleCase per nomi puliti
@@ -422,59 +433,109 @@ export class MasterFileService {
             } catch (e) { }
         }
 
-        // 5. PREPARA INSERIMENTO IN UN'UNICA TRANSAZIONE SICURA
+        // 5. CONSOLIDAMENTO NON DISTRUTTIVO (Preserva relazioni Shopify e Icecat)
+        logger.info(`🔄 [Consolidamento] Avvio sincronizzazione MasterFile (${dataToInsert.length} prodotti)`);
+
+        // Recuperiamo gli EAN attuali per capire cosa aggiornare, cosa eliminare e cosa azzerare
+        const currentProducts = await prisma.masterFile.findMany({
+            where: { utenteId },
+            select: { 
+                eanGtin: true, 
+                id: true,
+                outputShopify: { select: { shopifyProductId: true } }
+            }
+        });
+
+        const currentEanMap = new Map<string, number>();
+        currentProducts.forEach(p => { if (p.eanGtin) currentEanMap.set(p.eanGtin, p.id); });
+
+        const toCreate = [];
+        const toUpdate = [];
+        const seenEansInNewData = new Set<string>();
+
+        for (const item of dataToInsert) {
+            if (item.eanGtin && currentEanMap.has(item.eanGtin)) {
+                toUpdate.push({ id: currentEanMap.get(item.eanGtin)!, ...item });
+                seenEansInNewData.add(item.eanGtin);
+            } else {
+                toCreate.push(item);
+            }
+        }
+
+        const productsToProcessForDeletion = currentProducts.filter(p => p.eanGtin && !seenEansInNewData.has(p.eanGtin));
+        
+        const toDeleteIds = productsToProcessForDeletion
+            .filter(p => !p.outputShopify?.shopifyProductId) // Se NON è su Shopify, cancella pure
+            .map(p => p.id);
+            
+        const toZeroOutIds = productsToProcessForDeletion
+            .filter(p => p.outputShopify?.shopifyProductId) // Se È su Shopify, NON cancellare, metti a zero
+            .map(p => p.id);
+
         const transactions = [];
 
-        // Prima operazione: cancella il master file vecchio
-        transactions.push(prisma.masterFile.deleteMany({ where: { utenteId } }));
-
-        const batchSize = 500;
-        for (let i = 0; i < dataToInsert.length; i += batchSize) {
-            transactions.push(
-                prisma.masterFile.createMany({ 
-                    data: dataToInsert.slice(i, i + batchSize),
-                    skipDuplicates: true 
-                })
-            );
+        // A. Elimina prodotti spariti (solo se non sono su Shopify)
+        if (toDeleteIds.length > 0) {
+            transactions.push(prisma.masterFile.deleteMany({ where: { id: { in: toDeleteIds } } }));
         }
 
-        // Esegue tutte le operazioni (cancellazione + inserimento) in un colpo solo. 
-        // Se c'è un crash, nulla viene cancellato.
+        // A2. Azzera inventory per prodotti spariti ma ancora su Shopify
+        if (toZeroOutIds.length > 0) {
+            transactions.push(prisma.masterFile.updateMany({
+                where: { id: { in: toZeroOutIds } },
+                data: { 
+                    quantitaTotaleAggregata: 0,
+                    updatedAt: new Date()
+                }
+            }));
+            logger.info(`📉 [Consolidamento] Rilevati ${toZeroOutIds.length} prodotti spariti ma presenti su Shopify: impostati a quantità 0.`);
+        }
+
+        // B. Crea nuovi prodotti
+        if (toCreate.length > 0) {
+            const batchSize = 500;
+            for (let i = 0; i < toCreate.length; i += batchSize) {
+                transactions.push(prisma.masterFile.createMany({ 
+                    data: toCreate.slice(i, i + batchSize),
+                    skipDuplicates: true 
+                }));
+            }
+        }
+
+        // C. Aggiorna esistenti (Prezzi e Quantità)
+        // Nota: Prisma non ha un bulk update efficiente per campi diversi per record.
+        // Eseguiamo aggiornamenti individuali nel blocco transazione per quelli che hanno cambiato dati critici.
+        // Per performance, qui facciamo un update delle info stock/prezzo.
+        for (const up of toUpdate) {
+            transactions.push(prisma.masterFile.update({
+                where: { id: up.id },
+                data: {
+                    prezzoAcquistoMigliore: up.prezzoAcquistoMigliore,
+                    prezzoVenditaCalcolato: up.prezzoVenditaCalcolato,
+                    quantitaTotaleAggregata: up.quantitaTotaleAggregata,
+                    fornitoreSelezionatoId: up.fornitoreSelezionatoId,
+                    skuSelezionato: up.skuSelezionato,
+                    updatedAt: new Date()
+                }
+            }));
+        }
+
+        logger.info(`📊 [Consolidamento] Pianificato: ${toCreate.length} creazioni, ${toUpdate.length} aggiornamenti, ${eansToDelete.length} eliminazioni`);
+
         await prisma.$transaction(transactions);
 
-        // 6. RIPRISTINO DATI ICECAT
-        if (icecatBackup.size > 0) {
-            const newMFs = await prisma.masterFile.findMany({
-                where: { utenteId },
-                select: { id: true, eanGtin: true }
-            });
-            const toRestore = newMFs.map(mf => {
-                const b = icecatBackup.get(mf.eanGtin || '');
-                if (!b) return null;
-                return {
-                    masterFileId: mf.id,
-                    eanGtin: mf.eanGtin,
-                    categoriaIcecat: b.categoriaIcecat,  // P1: Preserva la categoria Icecat nel backup
-                    descrizioneBrave: b.descrizioneBrave,
-                    descrizioneLunga: b.descrizioneLunga,
-                    specificheTecnicheJson: b.specificheTecnicheJson,
-                    urlImmaginiJson: b.urlImmaginiJson,
-                    bulletPointsJson: b.bulletPointsJson,
-                    documentiJson: b.documentiJson,
-                    linguaOriginale: b.linguaOriginale,
-                    dataScaricamento: b.dataScaricamento
-                };
-            }).filter(x => x !== null) as any[];
-
-            for (let i = 0; i < toRestore.length; i += batchSize) {
-                await prisma.datiIcecat.createMany({ data: toRestore.slice(i, i + batchSize), skipDuplicates: true });
-            }
-            logger.info(`✅ [Utente ${utenteId}] Ripristinati ${toRestore.length} record Icecat (con categoriaIcecat preservata)`);
-        }
+        // 6. RIPRISTINO ICECAT NON PIÙ NECESSARIO (Preservato dall'Update)
+        icecatBackup.clear();
 
         // 7. NORMALIZZAZIONE CATEGORIE VIA ICECAT (Scenario 3 — Ibrido)
         // Se un prodotto ha dati Icecat con categoriaIcecat, usiamo quella come categoria prioritaria
         await this.normalizeCategoriesFromIcecat(utenteId);
+
+        return {
+            consolidated: dataToInsert.length,
+            filtered: 0, // Placeholder se implementi logica di filtro post-consolidamento
+            skipped: 0
+        };
     }
 
     /**

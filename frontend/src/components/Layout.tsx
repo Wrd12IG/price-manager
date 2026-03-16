@@ -148,12 +148,12 @@ export default function Layout({ children }: LayoutProps) {
                     })}
             </List>
             <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.12)' }} />
-            <Box sx={{ p: 2, textAlign: 'center', color: 'rgba(255, 255, 255, 0.5)' }}>
+            <Box sx={{ p: 2, textAlign: 'center', color: 'rgba(255, 255, 255, 0.5)', mt: 'auto' }}>
                 <Typography variant="caption" display="block" sx={{ fontWeight: 600 }}>
-                    v2.0.0
+                    v2.5.0
                 </Typography>
                 <Typography variant="caption" display="block" sx={{ fontSize: '0.65rem', mt: 0.5 }}>
-                    Last updated: 26/01/2026
+                    Last updated: 17/03/2026
                 </Typography>
                 <Typography variant="caption" display="block" sx={{ fontSize: '0.65rem', mt: 1, opacity: 0.7 }}>
                     © 2026 WR Digital
@@ -237,7 +237,12 @@ export default function Layout({ children }: LayoutProps) {
                     variant="permanent"
                     sx={{
                         display: { xs: 'none', sm: 'block' },
-                        '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+                        '& .MuiDrawer-paper': { 
+                            boxSizing: 'border-box', 
+                            width: drawerWidth,
+                            backgroundColor: '#000000',
+                            borderRight: '1px solid rgba(255, 255, 255, 0.12)'
+                        },
                     }}
                     open
                 >

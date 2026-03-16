@@ -358,21 +358,48 @@ export class NormalizationService {
             }
         });
 
-        // 2. Recupera tutte le categorie
+        const { MasterFileService } = await import('./MasterFileService');
         const categories = await prisma.categoria.findMany();
         const nameToId = new Map<string, number>();
         categories.forEach(c => nameToId.set(c.nome.toLowerCase().trim(), c.id));
+
+        const forbiddenTerms = ['varie', 'altro', 'accessori', 'generic', 'unknown', 'misc'];
 
         let merged = 0;
         let processed = 0;
 
         for (const cat of categories) {
-            const suggestion = suggestionMap.get(cat.id);
+            let suggestion = suggestionMap.get(cat.id);
             if (!suggestion) continue;
 
+            // P3b: Normalizza suggerimento
+            suggestion = MasterFileService.toTitleCase(suggestion.trim());
+            const lowSec = suggestion.toLowerCase().trim();
+
+            // Protezione contro suggerimenti troppo generici
+            if (forbiddenTerms.some(t => lowSec.includes(t)) && lowSec.length < 10) continue;
+
             processed++;
-            const targetId = nameToId.get(suggestion.toLowerCase().trim());
+            let targetId = nameToId.get(lowSec);
             
+            // Se il target non esiste, crealo (Proattività)
+            if (!targetId && suggestion.length > 3) {
+                try {
+                    const newCat = await prisma.categoria.create({
+                        data: {
+                            nome: suggestion,
+                            normalizzato: suggestion.toUpperCase(),
+                            attivo: true
+                        }
+                    });
+                    targetId = newCat.id;
+                    nameToId.set(lowSec, targetId);
+                    logger.info(`✨ [Auto-Normalize] Creata nuova categoria target suggerita da Icecat: "${suggestion}"`);
+                } catch (e) {
+                    continue;
+                }
+            }
+
             // Unisci solo se il target esiste ed è diverso dal sorgente
             if (targetId && targetId !== cat.id) {
                 try {

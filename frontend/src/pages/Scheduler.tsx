@@ -196,20 +196,29 @@ export default function Scheduler() {
     };
 
     return (
-        <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box sx={{ width: '100%' }}>
+            <Box sx={{ 
+                display: 'flex', 
+                flexDirection: { xs: 'column', sm: 'row' },
+                justifyContent: 'space-between', 
+                alignItems: { xs: 'flex-start', sm: 'center' }, 
+                mb: 4,
+                gap: 2
+            }}>
                 <Box>
-                    <Typography variant="h4" fontWeight={700} gutterBottom>
+                    <Typography variant="h4" fontWeight={700} sx={{ wordBreak: 'break-word' }}>
                         Scheduler Automatico
                     </Typography>
                     <Typography variant="body1" color="text.secondary">
-                        Gestione e monitoraggio dei processi automatici notturni.
+                        Gestione e monitoraggio dei processi automatici e workflow.
                     </Typography>
                 </Box>
                 <Button
-                    variant="outlined"
+                    variant="contained"
+                    color="inherit"
                     startIcon={<RefreshIcon />}
                     onClick={fetchStatus}
+                    sx={{ bgcolor: 'white' }}
                 >
                     Aggiorna
                 </Button>

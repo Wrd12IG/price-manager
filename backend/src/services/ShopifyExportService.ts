@@ -53,21 +53,46 @@ export class ShopifyExportService {
         return text.replace(/[&<>"']/g, m => map[m]);
     }
 
-    /**
-     * 🧼 Pulisce il titolo rimuovendo tag HTML e spazi eccessivi
-     */
+    // 🧼 Pulisce il titolo rimuovendo tag HTML e spazi eccessivi
     private static cleanTitle(text: string | null | undefined): string {
         if (!text) return '';
-        // Rimuovi tag HTML
         let clean = text.replace(/<[^>]*>?/gm, '');
-        // Rimuovi entità HTML comuni
         clean = clean.replace(/&nbsp;/g, ' ')
                      .replace(/&amp;/g, '&')
                      .replace(/&gt;/g, '>')
                      .replace(/&lt;/g, '<')
                      .replace(/&quot;/g, '"');
-        // Rimuovi spazi multipli e trim
         return clean.replace(/\s+/g, ' ').trim();
+    }
+
+    /**
+     * 🛡️ Esegue controlli di qualità sul prodotto prima dell'export.
+     * Ritorna un feedback se il prodotto è "debole" (es. categoria generica).
+     */
+    private static validateProductQuality(p: any): { isGood: boolean; reason?: string } {
+        const forbiddenCategories = [
+            'materiali vari', 'accessori', 'altro', 'varie', 
+            'materiali di consumo', 'uncategorized', 'generico'
+        ];
+        
+        const catName = (p.categoria?.nome || '').toLowerCase().trim();
+        
+        // 1. Check categoria generica
+        if (!catName || forbiddenCategories.includes(catName)) {
+            return { isGood: false, reason: 'Categoria troppo generica' };
+        }
+
+        // 2. Check lunghezza minima dati
+        if (!p.marchio?.nome || p.marchio.nome === 'Generico') {
+             // Marca mancante è tollerata ma segnalabile
+        }
+
+        // 3. Titolo non valido
+        if (!p.nomeProdotto || p.nomeProdotto.length < 5) {
+            return { isGood: false, reason: 'Titolo troppo corto o mancante' };
+        }
+
+        return { isGood: true };
     }
 
     /**
@@ -254,6 +279,15 @@ export class ShopifyExportService {
                     }
                 }
 
+                // 🛡️ HEALTH CHECK - Qualità Catalogo
+                const quality = this.validateProductQuality(p);
+                let statoCaricamento = 'pending';
+                
+                if (!quality.isGood) {
+                    logger.warn(`⚠️ [Qualità] Prodotto ${p.eanGtin} bloccato: ${quality.reason}`);
+                    statoCaricamento = 'blocked_quality';
+                }
+
                 const outputData = {
                     utenteId,
                     masterFileId: p.id,
@@ -270,7 +304,7 @@ export class ShopifyExportService {
                     descrizioneBreve,
                     specificheJson,
                     metafieldsJson: JSON.stringify(metafieldsObj),
-                    statoCaricamento: 'pending'
+                    statoCaricamento: statoCaricamento
                 };
 
                 // Upsert solo per prodotti NON ancora caricati su Shopify
@@ -449,9 +483,56 @@ export class ShopifyExportService {
         const total = await prisma.outputShopify.count({ where: { utenteId } });
         const uploaded = await prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'uploaded' } });
         const errors = await prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'error' } });
+        const blocked = await prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'blocked_quality' } });
 
-        return { total, uploaded, errors, ready: total - uploaded - errors };
+        return { total, uploaded, errors, blocked, ready: total - uploaded - errors - blocked };
     }
+
+    /**
+     * 🤖 AI Suggest Category: suggerisce una categoria corretta per prodotti bloccati
+     */
+    static async getQualitySuggestions(utenteId: number) {
+        const blocked = await prisma.outputShopify.findMany({
+            where: { utenteId, statoCaricamento: 'blocked_quality' },
+            include: { masterFile: { include: { categoria: true } } },
+            take: 100
+        });
+
+        if (blocked.length === 0) return [];
+
+        // Recupera tutte le categorie valide nel sistema
+        const validCategories = await prisma.categoria.findMany({
+            where: { masterFiles: { some: {} } },
+            select: { nome: true }
+        });
+        const catNames = validCategories.map(c => c.nome);
+
+        const { AIService } = await import('./AIService');
+        
+        const suggestions = [];
+        for (const p of blocked) {
+            const prompt = `Analizza questo prodotto e scegli la categoria più appropriata tra quelle esistenti nel mio e-commerce.
+            Prodotto: ${p.title}
+            Categoria Attuale: ${p.masterFile?.categoria?.nome || 'Sconosciuta'}
+            Categorie Valide Disponibili: ${catNames.join(', ')}
+            
+            Rispondi SOLO col nome della categoria scelta, nient'altro. Se nessuna è adatta, rispondi "UNKNOWN".`;
+
+            const suggestion = await AIService.askGemini(prompt, utenteId);
+            if (suggestion && suggestion !== 'UNKNOWN' && catNames.includes(suggestion)) {
+                suggestions.push({
+                    productId: p.id,
+                    masterFileId: p.masterFileId,
+                    title: p.title,
+                    currentCategory: p.masterFile?.categoria?.nome,
+                    suggestedCategory: suggestion
+                });
+            }
+        }
+
+        return suggestions;
+    }
+
 
     static async getExportedProducts(utenteId: number, page: number = 1, limit: number = 50) {
         const skip = (page - 1) * limit;

@@ -84,3 +84,51 @@ export const autoNormalize = async (req: any, res: Response) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+// --- QUALITY HUB ---
+
+// Ottiene i suggerimenti AI per i prodotti bloccati
+export const getQualityIssues = async (req: any, res: Response) => {
+    try {
+        const { ShopifyExportService } = await import('../services/ShopifyExportService');
+        const suggestions = await ShopifyExportService.getQualitySuggestions(Number(req.utenteId));
+        res.json(suggestions);
+    } catch (error: any) {
+        logger.error('Errore getQualityIssues:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Applica i suggerimenti AI in bulk
+export const applyQualityFixes = async (req: any, res: Response) => {
+    try {
+        const { fixes } = req.body; // Array di { masterFileId, suggestedCategory }
+        if (!fixes || !Array.isArray(fixes)) return res.status(400).json({ error: 'Array fixes richiesto' });
+
+        const { NormalizationService } = await import('../services/NormalizationService');
+        let count = 0;
+
+        for (const fix of fixes) {
+            // Trova l'ID della categoria suggerita
+            const cat = await prisma.categoria.findFirst({ where: { nome: fix.suggestedCategory } });
+            if (cat) {
+                // Esegui il merge o aggiorna direttamente
+                await prisma.masterFile.update({
+                    where: { id: fix.masterFileId },
+                    data: { categoriaId: cat.id }
+                });
+                // Sblocca il prodotto
+                await prisma.outputShopify.update({
+                    where: { masterFileId: fix.masterFileId },
+                    data: { statoCaricamento: 'pending' }
+                });
+                count++;
+            }
+        }
+
+        res.json({ success: true, applied: count });
+    } catch (error: any) {
+        logger.error('Errore applyQualityFixes:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

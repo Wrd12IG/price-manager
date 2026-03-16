@@ -391,6 +391,11 @@ export class SchedulerService {
                         jobProgressManager.updateProgress(jobId, 60, 'Dati Icecat arricchiti');
                         if (logFase2_Icecat) await this.updateLog(logFase2_Icecat.id, 'success', icecatResult.enriched, icecatResult.errors, icecatResult, startFase2_Icecat);
 
+                        // --- FASE 2.2: AUTO-NORMALIZZAZIONE CATEGORIE ---
+                        // P2b/P3b: Sistema automaticamente le categorie basandosi sui dati Icecat appena ricevuti
+                        const { NormalizationService } = await import('./NormalizationService');
+                        await NormalizationService.autoNormalizeAllCategories(utenteId);
+
                         // --- FASE 2.5: OTTIMIZZAZIONE AI ---
                         logger.info(`--- FASE 2.5 (Utente ${utenteId}): Ottimizzazione AI ---`);
                         const logFase2_AI = await this.createLog(utenteId, 'OTTMIZZAZIONE_AI');

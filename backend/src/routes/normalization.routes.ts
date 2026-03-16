@@ -13,5 +13,7 @@ router.get('/search/:type', normalizationController.search);
 router.post('/merge/:type', normalizationController.mergeItems);
 router.delete('/clean-orphans/:type', normalizationController.cleanOrphans);
 router.post('/auto-normalize', normalizationController.autoNormalize);
+router.get('/quality-issues', normalizationController.getQualityIssues);
+router.post('/quality-fixes', normalizationController.applyQualityFixes);
 
 export default router;
