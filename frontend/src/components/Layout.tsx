@@ -153,7 +153,7 @@ export default function Layout({ children }: LayoutProps) {
                     v2.5.0
                 </Typography>
                 <Typography variant="caption" display="block" sx={{ fontSize: '0.65rem', mt: 0.5 }}>
-                    Last updated: 17/03/2026
+                    Last updated: 18/03/2026
                 </Typography>
                 <Typography variant="caption" display="block" sx={{ fontSize: '0.65rem', mt: 1, opacity: 0.7 }}>
                     © 2026 WR Digital
