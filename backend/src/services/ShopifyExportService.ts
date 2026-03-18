@@ -78,7 +78,7 @@ export class ShopifyExportService {
         const catName = (p.categoria?.nome || '').toLowerCase().trim();
         
         // 1. Check categoria generica
-        if (!catName || forbiddenCategories.includes(catName)) {
+        if (!catName || (forbiddenCategories.includes(catName) && !catName.includes('monitor'))) {
             return { isGood: false, reason: 'Categoria troppo generica' };
         }
 
@@ -212,20 +212,22 @@ export class ShopifyExportService {
                     const progress = Math.round((processedCount / totalToProcess) * 40); // 40% max per la fase di preparazione
                     jobProgressManager.updateProgress(jobId, progress, `Generazione export: ${processedCount}/${totalToProcess} prodotti...`);
                 }
-                // Priorità Titolo: Icecat (descrizioneBrave) > Nome Prodotto Fornitore > EAN
-                let rawTitle = p.datiIcecat?.descrizioneBrave || p.nomeProdotto || `Prodotto ${p.eanGtin}`;
+                // 🎯 PRIORITÀ TITOLO: 
+                // 1. Nome Prodotto (Master File) - scelto dall'utente/fornitore come base pulita
+                // 2. Icecat (descrizioneBrave) - fallback se manca il nome prodotto
+                // 3. EAN - estremo fallback
+                let rawTitle = p.nomeProdotto || p.datiIcecat?.descrizioneBrave || `Prodotto ${p.eanGtin}`;
                 let initialTitle = this.cleanTitle(rawTitle);
                 
-                // Se il titolo da Icecat è troppo lungo (un paragrafo), proviamo a estrarre solo la prima frase o usiamo il nome prodotto.
+                // Se il titolo è troppo lungo (oltre 150), proviamo a estrarre solo la prima frase
+                // o a troncarlo in modo pulito.
                 let title = initialTitle;
-                if (title.length > 150) {
+                if (title.length > 200) {
                     const firstPeriod = title.indexOf('.');
-                    if (firstPeriod > 20 && firstPeriod < 150) {
+                    if (firstPeriod > 30 && firstPeriod < 200) {
                         title = title.substring(0, firstPeriod).trim();
-                    } else if (p.nomeProdotto && p.nomeProdotto.length < 150) {
-                        title = p.nomeProdotto;
                     } else {
-                        title = title.substring(0, 150).trim() + '...';
+                        title = title.substring(0, 200).trim();
                     }
                 }
 

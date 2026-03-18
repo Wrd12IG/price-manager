@@ -17,7 +17,7 @@ export class MasterFileService {
      * Es: "MATERIALI DI CONSUMO" → "Materiali Di Consumo"
      *     "schede madri" → "Schede Madri"
      */
-    private static toTitleCase(str: string): string {
+    public static toTitleCase(str: string): string {
         return str.trim()
             .toLowerCase()
             .replace(/(?:^|\s|[-/])\S/g, (match) => match.toUpperCase());
@@ -279,6 +279,12 @@ export class MasterFileService {
         existingMarchi.forEach(m => marchiMap.set(m.nome.toLowerCase().trim(), m.id));
         existingCat.forEach(c => categorieMap.set(c.nome.toLowerCase().trim(), c.id));
 
+        // P2a: Indice semantico per evitare duplicati come "MONITOR PC" vs "Monitor Pc"
+        const semanticBrandIndex = new Map<string, number>();
+        const semanticCatIndex = new Map<string, number>();
+        existingMarchi.forEach(m => semanticBrandIndex.set(this.semanticKey(m.nome), m.id));
+        existingCat.forEach(c => semanticCatIndex.set(this.semanticKey(c.nome), c.id));
+
         brandAliases.forEach(a => {
             const lowAlias = a.alias.toLowerCase().trim();
             marchiMap.set(lowAlias, a.targetId);
@@ -297,12 +303,6 @@ export class MasterFileService {
         // P2a: Uso di semanticKey per deduplicazione e toTitleCase per nomi puliti
         const missingBrands = new Set<string>();
         const missingCats = new Set<string>();
-
-        // P2a: Indice semantico per evitare duplicati come "MONITOR PC" vs "Monitor Pc"
-        const semanticBrandIndex = new Map<string, number>();
-        const semanticCatIndex = new Map<string, number>();
-        existingMarchi.forEach(m => semanticBrandIndex.set(this.semanticKey(m.nome), m.id));
-        existingCat.forEach(c => semanticCatIndex.set(this.semanticKey(c.nome), c.id));
 
         for (const product of products) {
             if (product.marca) {
@@ -520,7 +520,7 @@ export class MasterFileService {
             }));
         }
 
-        logger.info(`📊 [Consolidamento] Pianificato: ${toCreate.length} creazioni, ${toUpdate.length} aggiornamenti, ${eansToDelete.length} eliminazioni`);
+        logger.info(`📊 [Consolidamento] Pianificato: ${toCreate.length} creazioni, ${toUpdate.length} aggiornamenti, ${toDeleteIds.length} eliminazioni, ${toZeroOutIds.length} azzeramenti`);
 
         await prisma.$transaction(transactions);
 

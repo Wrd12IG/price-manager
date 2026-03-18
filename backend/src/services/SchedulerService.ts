@@ -470,13 +470,13 @@ export class SchedulerService {
                             stato: syncResult.errors > 0 ? 'warning' : 'success',
                             dettagli: [
                                 `Totale: ${syncResult.total}`,
-                                `OK: ${syncResult.synced}`,
+                                `OK: ${syncResult.success}`,
                                 `Errori: ${syncResult.errors}`
                             ]
                         });
 
                         jobProgressManager.updateProgress(jobId, 95, 'Sincronizzazione Shopify completata');
-                        if (logFase4) await this.updateLog(logFase4.id, syncResult.errors > 0 ? 'warning' : 'success', syncResult.synced, syncResult.errors, syncResult, startFase4);
+                        if (logFase4) await this.updateLog(logFase4.id, syncResult.errors > 0 ? 'warning' : 'success', syncResult.success, syncResult.errors, syncResult, startFase4);
 
 
                         // --- INVIO REPORT SUCCESSO ---

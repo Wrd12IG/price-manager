@@ -134,6 +134,7 @@ export class ShopifyService {
             logger.info(`[Shopify] 📦 Batch di ${products.length} prodotti (tot. processati: ${processedTotal}/${totalPending})`);
 
             for (const p of products) {
+                let safeTitle = (p.title || '').substring(0, 255);
                 try {
                     const cleanShopUrl = config.shopUrl.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '').split('/')[0];
                     const shopifyUrl = `https://${cleanShopUrl}/admin/api/2024-01/products.json`;
@@ -276,6 +277,8 @@ export class ShopifyService {
                         }
                     }
 
+
+
                     while (attempts < maxAttempts && !productSynced) {
                         try {
                             attempts++;
@@ -304,13 +307,11 @@ export class ShopifyService {
                             } else {
                                 // ❌ NON inviare metafields nel payload del prodotto - Shopify li ignora!
 
-                                    let safeTitle = '';
                                     if (productId) {
                                         // ✅ Prodotto già esiste su Shopify: fai UPDATE (PUT) invece di CREATE (POST)
                                         // ⚠️ NON includere 'images' nella PUT: Shopify le AGGIUNGE (non sostituisce)
                                         //    causando duplicati e triplicati ad ogni sincronizzazione!
                                         logger.info(`🔄 Prodotto ${p.sku} già esiste su Shopify (ID: ${productId}), aggiornamento completo (senza immagini)...`);
-                                        safeTitle = (p.title || '').substring(0, 255);
                                         const updatePayload = {
                                             product: {
                                                 title: safeTitle,
@@ -338,7 +339,6 @@ export class ShopifyService {
                                     );
                                     } else {
                                         // 🆕 Prodotto nuovo: crea su Shopify (POST) — qui le immagini si inviano solo in creazione
-                                        safeTitle = (p.title || '').substring(0, 255);
                                         const createPayload = {
                                             product: {
                                                 title: safeTitle,
@@ -533,14 +533,15 @@ export class ShopifyService {
     }
 
     static async getSyncProgress(utenteId: number) {
-        const [total, pending, uploaded, errors, priceUpdates, imageUpdates] = await Promise.all([
-            prisma.outputShopify.count({ where: { utenteId } }),
+        const [pending, uploaded, errors, priceUpdates, imageUpdates] = await Promise.all([
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'pending' } }),
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'uploaded' } }),
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'error' } }),
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'price_update' } }),
             prisma.outputShopify.count({ where: { utenteId, statoCaricamento: 'image_update' } })
         ]);
+
+        const total = pending + uploaded + errors + priceUpdates + imageUpdates;
 
         return {
             total,

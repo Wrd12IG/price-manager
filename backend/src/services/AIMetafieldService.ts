@@ -33,7 +33,7 @@ export class AIMetafieldService {
 
         try {
             const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
             const icecat = product.datiIcecat;
             const features = icecat?.specificheTecnicheJson ? JSON.parse(icecat.specificheTecnicheJson) : [];
             const bullets = icecat?.bulletPointsJson ? JSON.parse(icecat.bulletPointsJson) : [];
@@ -71,7 +71,7 @@ EAN|[codice 13 cifre, lascia vuoto se non disponibile]
 Descrizione Breve|[max 150 caratteri, accattivante]
 Descrizione Lunga|[300-500 parole, SEO-friendly, strutturata in 4 paragrafi: Intro, Specifiche, Utilizzi, Conclusione]
 Tabella Specifiche|[HTML table completo con tutte le specifiche, stile pulito]
-Titolo SEO Ottimizzato|[Titolo PROFESSIONALE e SEO: Marca Modello - Spec1 - Spec2. MASSIMO ASSOLUTO 75 caratteri. NO EAN. Lingua Italiana. Sii conciso e pulito.]
+Titolo SEO Ottimizzato|[Titolo PROFESSIONALE e PULITO per e-commerce: Marca Modello - Spec Essenziale. MASSIMO 70 caratteri. Esempio: "Samsung Odyssey G5 - 27\" QHD - 144Hz". NO EAN. NO descrizioni lunghe. Lingua Italiana.]
 SEO Title Tag|[Tag title per Google: Marca Modello Specifiche | NomeSito (max 60 char)]
 SEO Meta Description|[Meta description accattivante con call to action, focus su benefici e disponibilità (max 160 char)]
 
@@ -81,7 +81,7 @@ REGOLE:
 - Se un dato non è disponibile, lascia il valore vuoto dopo il pipe
 - Descrizione Lunga: Usa tag HTML <p>, <h3>, <ul>, <li>
 - Tabella Specifiche: HTML con <table style="width:100%; border-collapse:collapse;">, celle con border:1px solid #ddd; padding:8px;
-- Titolo SEO: Deve essere pronto per l'e-commerce, max 75 caratteri.
+- Titolo SEO: Deve essere pronto per l'e-commerce, MASSIMO 70 caratteri. Sii estremamente conciso.
 
 OUTPUT (solo i dati, senza preamble):`;
 
